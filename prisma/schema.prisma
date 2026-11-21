@@ -1,0 +1,121 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Municipality {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  centerLat Float
+  centerLng Float
+  zoom      Float    @default(13)
+  createdAt DateTime @default(now())
+
+  corridors RoadCorridor[]
+  signals   TrafficSignal[]
+  incidents IncidentReport[]
+}
+
+model User {
+  id           String   @id @default(cuid())
+  displayName  String?
+  email        String?  @unique
+  deviceHash   String?  @unique
+  role         String   @default("CITIZEN")
+  trustScore   Float    @default(1.0)
+  createdAt    DateTime @default(now())
+
+  reports      IncidentReport[]
+  votes        ReportVote[]
+}
+
+model RoadCorridor {
+  id              String   @id @default(cuid())
+  municipalityId  String
+  municipality    Municipality @relation(fields: [municipalityId], references: [id])
+  code            String   @unique
+  name            String
+  category        String
+  isCabaAccess    Boolean  @default(false)
+  coordinatesJson String
+  centerLat       Float
+  centerLng       Float
+  manualStatus    String?
+  updatedAt       DateTime @updatedAt
+}
+
+model TrafficSignal {
+  id              String   @id @default(cuid())
+  municipalityId  String
+  municipality    Municipality @relation(fields: [municipalityId], references: [id])
+  intersection    String
+  corridorCode    String?
+  lat             Float
+  lng             Float
+  status          String   @default("SIN_INFORMACION")
+  sourceType      String   @default("CITIZEN")
+  externalApiId   String?
+  reportCount     Int      @default(0)
+  lastReportedAt  DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  incidents       IncidentReport[]
+}
+
+model IncidentReport {
+  id              String   @id @default(cuid())
+  municipalityId  String
+  municipality    Municipality @relation(fields: [municipalityId], references: [id])
+  userId          String?
+  user            User?    @relation(fields: [userId], references: [id])
+  corridorCode    String?
+  signalId        String?
+  signal          TrafficSignal? @relation(fields: [signalId], references: [id])
+  type            String
+  severity        Int      @default(2)
+  description     String?
+  photoUrl        String?
+  lat             Float
+  lng             Float
+  addressLabel    String?
+  status          String   @default("ACTIVO")
+  sourceType      String   @default("CITIZEN")
+  confirmations   Int      @default(1)
+  resolutions     Int      @default(0)
+  reliability     Float    @default(0.45)
+  reportedAt      DateTime @default(now())
+  lastActivityAt  DateTime @default(now())
+  resolvedAt      DateTime?
+
+  votes           ReportVote[]
+}
+
+model ReportVote {
+  id         String   @id @default(cuid())
+  reportId   String
+  report     IncidentReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  voterKey   String
+  voteType   String
+  createdAt  DateTime @default(now())
+
+  @@unique([reportId, voterKey])
+}
+
+model StatusHistory {
+  id             String   @id @default(cuid())
+  entityType     String
+  entityId       String
+  previousStatus String?
+  newStatus      String
+  reason         String?
+  sourceType     String   @default("SYSTEM")
+  createdAt      DateTime @default(now())
+}
