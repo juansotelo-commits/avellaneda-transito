@@ -29,5 +29,5 @@ export function refreshIncidentReliability(inc: IncidentLike): { reliability: nu
   return { reliability: clamped };
 }
 
-export function getIncidentSeverity(type: string) { if (type === "ACCIDENTE" || type === "AVENIDA_CORTADA" || type === "SEMAFORO_APAGADO") return "ALTA"; if (type === "CALLE_CORTADA" || type === "SEMAFORO_TILDADO") return "MEDIA"; return "BAJA"; }
+export function getIncidentSeverity(type: string): number { if (type === "ACCIDENTE" || type === "AVENIDA_CORTADA" || type === "SEMAFORO_APAGADO") return 3; if (type === "CALLE_CORTADA" || type === "SEMAFORO_TILDADO") return 2; return 1; }
 export function calculateReliability(p: any) { const c = p.confirmations ?? 1; const r = p.resolutions ?? 0; let s = (p.sourceType === "OFFICIAL" ? 0.85 : 0.45) + (c - 1) * 0.1 - r * 0.2; const ref = p.lastActivityAt ?? p.reportedAt; let h = 0; if (ref) { const t = new Date(ref).getTime(); if (!Number.isNaN(t)) { h = Math.max(0, (Date.now() - t) / 3600000); s -= h * 0.05; } } const reliability = Math.max(0, Math.min(1, Number(s.toFixed(2)))); return { reliability, isStale: r >= 2 || h > 6 || reliability < 0.2 }; }
