@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Avellaneda Tránsito",
+  title: "Estado del Tránsito",
   description: "Estado del tránsito y accesos a CABA en tiempo real",
 };
 
