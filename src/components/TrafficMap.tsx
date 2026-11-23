@@ -12,20 +12,32 @@ interface TrafficMapProps {
   showSignals: boolean; pickLocationMode: boolean; pickedCoords: { lat: number; lng: number } | null;
   onSelectSignal: (signal: SignalDTO) => void; onSelectIncident: (incident: IncidentDTO) => void;
   onPickLocation: (coords: { lat: number; lng: number }) => void; focusCoords?: { lat: number; lng: number } | null;
+  userLocation?: { lat: number; lng: number } | null;
+}
+
+function createUserLocationElement() {
+  const el = document.createElement('div');
+  el.className = 'user-location';
+  el.setAttribute('aria-label', 'Tu ubicación');
+  el.innerHTML =
+    '<span class="user-location__pulse"></span>' +
+    '<span class="user-location__dot"></span>';
+  return el;
 }
 
 const SIGNAL_COLOR: Record<string, string> = {
   FUNCIONANDO: '#16a34a', APAGADO: '#18181b', TILDADO: '#dc2626', IRREGULAR: '#f97316', SIN_INFORMACION: '#94a3b8',
 };
 
-export default function jTrafficMap({
+export default function TrafficMap({
   corridors, signals, incidents, showSignals, pickLocationMode, pickedCoords,
-  onSelectSignal, onSelectIncident, onPickLocation, focusCoords,
+  onSelectSignal, onSelectIncident, onPickLocation, focusCoords, userLocation,
 }: TrafficMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
   const pickMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const userMarkerRef = useRef<maplibregl.Marker | null>(null);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -36,7 +48,6 @@ export default function jTrafficMap({
       minZoom: 11.5, maxZoom: 18,
     });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
-    map.addControl(new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true }, trackUserLocation: true }), 'top-right');
     map.on('load', () => {
       map.addSource('avellaneda-corridors', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
       map.addLayer({ id: 'corridors-casing', type: 'line', source: 'avellaneda-corridors', paint: { 'line-color': '#ffffff', 'line-width': 7, 'line-opacity': 0.8 } });
@@ -89,6 +100,23 @@ export default function jTrafficMap({
         }).addTo(map);
     }
   }, [pickLocationMode, pickedCoords, onPickLocation]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!userLocation) {
+      userMarkerRef.current?.remove();
+      userMarkerRef.current = null;
+      return;
+    }
+    const lngLat: [number, number] = [userLocation.lng, userLocation.lat];
+    if (userMarkerRef.current) {
+      userMarkerRef.current.setLngLat(lngLat);
+    } else {
+      userMarkerRef.current = new maplibregl.Marker({ element: createUserLocationElement(), anchor: 'center' })
+        .setLngLat(lngLat).addTo(map);
+    }
+  }, [userLocation]);
 
   useEffect(() => {
     if (!mapRef.current || !focusCoords) return;

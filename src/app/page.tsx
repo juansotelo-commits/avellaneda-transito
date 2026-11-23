@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import TrafficMap from '@/components/TrafficMap';
 import ReportModal from '@/components/ReportModal';
@@ -28,6 +28,60 @@ export default function HomePage() {
   const [selectedSignal, setSelectedSignal] = useState<SignalDTO | null>(null);
   const [selectedIncident, setSelectedIncident] = useState<IncidentDTO | null>(null);
   const [presetSignalForReport, setPresetSignalForReport] = useState<{ id: string; intersection: string } | null>(null);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [showLocationPrompt, setShowLocationPrompt] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const watchIdRef = useRef<number | null>(null);
+
+  const startTracking = useCallback(() => {
+    if (!('geolocation' in navigator) || watchIdRef.current !== null) return;
+    let centered = false;
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setUserLocation(coords);
+        setLocationError(null);
+        if (!centered) { centered = true; setFocusCoords(coords); }
+      },
+      (err) => {
+        if (err.code === err.PERMISSION_DENIED) {
+          if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
+          watchIdRef.current = null;
+          setUserLocation(null);
+          setLocationError('No pudimos acceder a tu ubicación. Podés habilitarla desde la configuración del navegador.');
+        }
+      },
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!('geolocation' in navigator)) return;
+    let cancelled = false;
+    const decide = async () => {
+      let state: PermissionState | 'unknown' = 'unknown';
+      try { state = (await navigator.permissions.query({ name: 'geolocation' })).state; } catch { /* Safari antiguo */ }
+      if (cancelled) return;
+      if (state === 'granted') startTracking();
+      else if (state !== 'denied') {
+        let dismissed = false;
+        try { dismissed = sessionStorage.getItem('avellaneda_location_dismissed') === '1'; } catch { /* sin storage */ }
+        if (!dismissed) setShowLocationPrompt(true);
+      }
+    };
+    decide();
+    return () => {
+      cancelled = true;
+      if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    };
+  }, [startTracking]);
+
+  const acceptLocation = () => { setShowLocationPrompt(false); startTracking(); };
+  const dismissLocation = () => {
+    setShowLocationPrompt(false);
+    try { sessionStorage.setItem('avellaneda_location_dismissed', '1'); } catch { /* sin storage */ }
+  };
 
   const loadOverview = useCallback(async () => {
     const res = await fetch('/api/overview', { cache: 'no-store' });
@@ -43,6 +97,7 @@ export default function HomePage() {
   const openReportWithGPS = (signal?: SignalDTO) => {
     setPresetSignalForReport(signal ? { id: signal.id, intersection: signal.intersection } : null);
     if (signal) { setPickedCoords({ lat: signal.lat, lng: signal.lng }); setShowReportModal(true); return; }
+    if (userLocation) { setPickedCoords(userLocation); setShowReportModal(true); return; }
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => { setPickedCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setShowReportModal(true); },
@@ -73,7 +128,36 @@ export default function HomePage() {
         onSelectSignal={(s) => { setSelectedIncident(null); setSelectedSignal(s); }}
         onSelectIncident={(i) => { setSelectedSignal(null); setSelectedIncident(i); }}
         onPickLocation={(coords) => setPickedCoords(coords)} focusCoords={focusCoords}
+        userLocation={userLocation}
       />
+      {userLocation && !selectedSignal && !selectedIncident && (
+        <button onClick={() => setFocusCoords({ ...userLocation })} aria-label={'Centrar el mapa en mi ubicación'}
+          className="absolute bottom-24 right-3 z-20 w-12 h-12 rounded-full bg-white shadow-xl border border-slate-200 flex items-center justify-center text-xl">
+          {'\u{1F4CD}'}
+        </button>
+      )}
+      {showLocationPrompt && (
+        <div className="absolute inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/40 p-3">
+          <div role="dialog" aria-modal="true" aria-labelledby="location-prompt-title"
+            className="w-full max-w-sm bg-white rounded-2xl shadow-2xl p-5 space-y-3">
+            <p className="text-3xl">{'\u{1F4CD}'}</p>
+            <h2 id="location-prompt-title" className="font-black text-lg text-slate-900">{'¿Querés compartir tu ubicación?'}</h2>
+            <p className="text-sm text-slate-600 leading-snug">
+              {'Te mostramos en el mapa dónde estás y el punto se va moviendo con vos. Tu ubicación no se guarda ni se envía a nadie.'}
+            </p>
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <button onClick={dismissLocation} className="py-3 rounded-xl bg-slate-100 text-slate-700 font-black text-sm">Ahora no</button>
+              <button onClick={acceptLocation} className="py-3 rounded-xl bg-blue-600 text-white font-black text-sm">Compartir</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {locationError && (
+        <div className="absolute top-36 left-3 right-3 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:w-96 z-40 bg-amber-50 border border-amber-300 text-amber-900 rounded-2xl shadow-lg p-3 flex items-start gap-2">
+          <p className="text-xs font-semibold flex-1">{locationError}</p>
+          <button onClick={() => setLocationError(null)} className="font-bold text-amber-700">{'✕'}</button>
+        </div>
+      )}
       <header className="absolute top-3 left-3 right-14 z-20 flex flex-col gap-2 max-w-md pointer-events-none">
         <div className="pointer-events-auto bg-white/95 backdrop-blur rounded-2xl shadow-lg p-3 border border-slate-200">
           <div className="flex items-center justify-between gap-2">
