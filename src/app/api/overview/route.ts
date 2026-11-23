@@ -100,8 +100,29 @@ export async function GET() {
   } catch (error) {
     console.error('Error en /api/overview:', error);
     return NextResponse.json(
-      { status: 'ERROR', summary: 'Sin datos disponibles', corridors: [], signals: [], incidents: [], cabaAccesses: [] },
+      {
+        status: 'ERROR', summary: 'Sin datos disponibles', diagnostico: diagnose(error),
+        corridors: [], signals: [], incidents: [], cabaAccesses: [],
+      },
       { status: 500 }
     );
   }
+}
+
+/** Clasifica el error sin exponer datos sensibles (ni la URL ni la contraseña de la base). */
+function diagnose(error: unknown): { tipo: string; codigo: string | null } {
+  if (!process.env.DATABASE_URL) return { tipo: 'FALTA_DATABASE_URL', codigo: null };
+  const e = error as { name?: string; code?: string; errorCode?: string; message?: string } | null;
+  const codigo = e?.code ?? e?.errorCode ?? null;
+  const msg = e?.message ?? '';
+  if (/Can't reach database server|timed out|ECONNREFUSED|ENOTFOUND/i.test(msg)) return { tipo: 'NO_CONECTA_A_LA_BASE', codigo };
+  if (/Authentication failed|password authentication/i.test(msg)) return { tipo: 'USUARIO_O_CLAVE_INCORRECTOS', codigo };
+  if (/table .* does not exist|relation .* does not exist/i.test(msg)) return { tipo: 'FALTAN_TABLAS', codigo };
+  if (/must start with the protocol|invalid.*url/i.test(msg)) return { tipo: 'DATABASE_URL_MAL_FORMADA', codigo };
+  if (codigo === 'P2021' || codigo === 'P2022') return { tipo: 'FALTAN_TABLAS', codigo };
+  if (codigo === 'P1000') return { tipo: 'USUARIO_O_CLAVE_INCORRECTOS', codigo };
+  if (codigo === 'P1001' || codigo === 'P1002' || codigo === 'P1017') return { tipo: 'NO_CONECTA_A_LA_BASE', codigo };
+  if (codigo === 'P1003') return { tipo: 'LA_BASE_NO_EXISTE', codigo };
+  if (e?.name === 'PrismaClientInitializationError') return { tipo: 'ERROR_AL_INICIAR_PRISMA', codigo };
+  return { tipo: 'OTRO', codigo: codigo ?? e?.name ?? null };
 }
