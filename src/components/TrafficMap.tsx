@@ -13,6 +13,7 @@ interface TrafficMapProps {
   onSelectSignal: (signal: SignalDTO) => void; onSelectIncident: (incident: IncidentDTO) => void;
   onPickLocation: (coords: { lat: number; lng: number }) => void; focusCoords?: { lat: number; lng: number } | null;
   userLocation?: { lat: number; lng: number } | null;
+  searchPlace?: { lat: number; lng: number; label: string } | null;
 }
 
 function createUserLocationElement() {
@@ -31,8 +32,9 @@ const SIGNAL_COLOR: Record<string, string> = {
 
 export default function TrafficMap({
   corridors, signals, incidents, showSignals, pickLocationMode, pickedCoords,
-  onSelectSignal, onSelectIncident, onPickLocation, focusCoords, userLocation,
+  onSelectSignal, onSelectIncident, onPickLocation, focusCoords, userLocation, searchPlace,
 }: TrafficMapProps) {
+  const searchMarkerRef = useRef<maplibregl.Marker | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
@@ -117,6 +119,19 @@ export default function TrafficMap({
         .setLngLat(lngLat).addTo(map);
     }
   }, [userLocation]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    searchMarkerRef.current?.remove();
+    searchMarkerRef.current = null;
+    if (!searchPlace) return;
+    const popup = new maplibregl.Popup({ offset: 32, closeButton: false, className: 'search-popup' }).setText(searchPlace.label);
+    searchMarkerRef.current = new maplibregl.Marker({ color: '#dc2626' })
+      .setLngLat([searchPlace.lng, searchPlace.lat]).setPopup(popup).addTo(map);
+    searchMarkerRef.current.togglePopup();
+    map.flyTo({ center: [searchPlace.lng, searchPlace.lat], zoom: 17, duration: 800 });
+  }, [searchPlace]);
 
   useEffect(() => {
     if (!mapRef.current || !focusCoords) return;

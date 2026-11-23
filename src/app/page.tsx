@@ -5,6 +5,7 @@ import Link from 'next/link';
 import TrafficMap from '@/components/TrafficMap';
 import ReportModal from '@/components/ReportModal';
 import CabaRouteModal from '@/components/CabaRouteModal';
+import AddressSearch, { type SearchPlace } from '@/components/AddressSearch';
 import { INCIDENT_LABELS, TRAFFIC_COLOR_MAP, type CorridorDTO, type IncidentDTO, type OverallStatus, type SignalDTO } from '@/types/traffic';
 
 
@@ -29,6 +30,7 @@ export default function HomePage() {
   const [selectedIncident, setSelectedIncident] = useState<IncidentDTO | null>(null);
   const [presetSignalForReport, setPresetSignalForReport] = useState<{ id: string; intersection: string } | null>(null);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [searchPlace, setSearchPlace] = useState<SearchPlace | null>(null);
   const [showLocationPrompt, setShowLocationPrompt] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   const watchIdRef = useRef<number | null>(null);
@@ -128,7 +130,7 @@ export default function HomePage() {
         onSelectSignal={(s) => { setSelectedIncident(null); setSelectedSignal(s); }}
         onSelectIncident={(i) => { setSelectedSignal(null); setSelectedIncident(i); }}
         onPickLocation={(coords) => setPickedCoords(coords)} focusCoords={focusCoords}
-        userLocation={userLocation}
+        userLocation={userLocation} searchPlace={searchPlace}
       />
       {userLocation && !selectedSignal && !selectedIncident && (
         <button onClick={() => setFocusCoords({ ...userLocation })} aria-label={'Centrar el mapa en mi ubicación'}
@@ -153,7 +155,7 @@ export default function HomePage() {
         </div>
       )}
       {locationError && (
-        <div className="absolute top-36 left-3 right-3 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:w-96 z-40 bg-amber-50 border border-amber-300 text-amber-900 rounded-2xl shadow-lg p-3 flex items-start gap-2">
+        <div className="absolute top-48 left-3 right-3 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:w-96 z-40 bg-amber-50 border border-amber-300 text-amber-900 rounded-2xl shadow-lg p-3 flex items-start gap-2">
           <p className="text-xs font-semibold flex-1">{locationError}</p>
           <button onClick={() => setLocationError(null)} className="font-bold text-amber-700">{'✕'}</button>
         </div>
@@ -177,15 +179,19 @@ export default function HomePage() {
             {`\u{1F309} Accesos a CABA (${data?.cabaAccesses.length ?? 0})`}
           </button>
         </div>
+        <AddressSearch
+          onSelect={(place) => { setShowAccessDrawer(false); setSearchPlace(place); }}
+          onClear={() => setSearchPlace(null)}
+        />
       </header>
       {pickLocationMode && (
-        <div className="absolute top-28 left-1/2 -translate-x-1/2 z-30 bg-blue-600 text-white px-4 py-2.5 rounded-2xl shadow-xl flex items-center gap-3">
+        <div className="absolute top-48 left-1/2 -translate-x-1/2 z-30 bg-blue-600 text-white px-4 py-2.5 rounded-2xl shadow-xl flex items-center gap-3">
           <span className="text-xs font-bold">{'Toc\u00e1 el mapa para mover el pin'}</span>
           <button onClick={() => { setPickLocationMode(false); setShowReportModal(true); }} className="bg-white text-blue-700 px-3 py-1 rounded-xl text-xs font-black">Confirmar punto</button>
         </div>
       )}
       {showAccessDrawer && data && (
-        <aside className="absolute top-32 left-3 right-3 sm:right-auto sm:w-96 max-h-[55vh] overflow-y-auto z-30 bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 space-y-2">
+        <aside className="absolute top-48 left-3 right-3 sm:right-auto sm:w-96 max-h-[55vh] overflow-y-auto z-30 bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 space-y-2">
           <div className="flex items-center justify-between">
             <h3 className="font-black text-sm text-slate-900">ACCESOS A CABA</h3>
             <button onClick={() => setShowAccessDrawer(false)} className="text-slate-500 font-bold">{'\u2715'}</button>
