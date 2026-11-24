@@ -193,7 +193,7 @@ export default function HomePage() {
           {data && <p className="text-xs text-slate-600 mt-1 leading-snug">{data.avellanedaAhora.summary}</p>}
           {live?.enabled && live.updatedAt && (
             <p className="text-[11px] text-slate-500 mt-1 leading-snug">
-              {`\u{1F4E1} En vivo: ${liveJams} ${liveJams === 1 ? 'zona' : 'zonas'} con tránsito lento · ${liveCuts} ${liveCuts === 1 ? 'corte' : 'cortes'} · ${new Date(live.updatedAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}`}
+              {`\u{1F4E1} En vivo: ${liveJams} ${liveJams === 1 ? 'zona' : 'zonas'} con tránsito lento · ${liveCuts} ${liveCuts === 1 ? 'corte' : 'cortes'} · ${new Date(live.updatedAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' })}`}
             </p>
           )}
         </div>
@@ -236,7 +236,7 @@ export default function HomePage() {
                 <div>
                   <p className="text-sm font-bold text-slate-900">{acc.name}</p>
                   <p className="text-[11px] text-slate-500">
-                    {acc.lastReportAt ? `\u00daltimo reporte: ${new Date(acc.lastReportAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}` : 'Sin reportes recientes'}
+                    {acc.lastReportAt ? `\u00daltimo reporte: ${new Date(acc.lastReportAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' })}` : 'Sin reportes recientes'}
                   </p>
                 </div>
                 <span className="text-xs font-black px-2.5 py-1 rounded-full bg-slate-100 shrink-0">{meta.emoji} {meta.label.split(' ')[0]}</span>
@@ -256,7 +256,7 @@ export default function HomePage() {
           </div>
           <div className="text-sm space-y-1">
             <p>Estado: <span className="font-black">{selectedSignal.status.replace('_', ' ')}</span></p>
-            <p className="text-xs text-slate-600">{'\u00daltimo reporte: '}{selectedSignal.lastReportedAt ? new Date(selectedSignal.lastReportedAt).toLocaleString('es-AR') : 'Sin informaci\u00f3n reciente'}</p>
+            <p className="text-xs text-slate-600">{'\u00daltimo reporte: '}{selectedSignal.lastReportedAt ? new Date(selectedSignal.lastReportedAt).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' }) : 'Sin informaci\u00f3n reciente'}</p>
             <p className="text-xs text-slate-600">Cantidad de reportes: {selectedSignal.reportCount}</p>
           </div>
           <button onClick={() => openReportWithGPS(selectedSignal)} className="w-full py-3 rounded-xl bg-amber-500 text-white font-black text-sm">Reportar problema en este sem\u00e1foro</button>
@@ -268,7 +268,7 @@ export default function HomePage() {
             <div>
               <p className="text-[11px] font-black uppercase text-red-600">Confiabilidad {Math.round(selectedIncident.reliability * 100)}%</p>
               <h3 className="font-black text-slate-900">{INCIDENT_LABELS[selectedIncident.type]}</h3>
-              <p className="text-xs text-slate-500">{selectedIncident.addressLabel || 'Avellaneda'} - {new Date(selectedIncident.lastActivityAt).toLocaleString('es-AR')}</p>
+              <p className="text-xs text-slate-500">{selectedIncident.addressLabel || 'Avellaneda'} - {new Date(selectedIncident.lastActivityAt).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })}</p>
             </div>
             <button onClick={() => setSelectedIncident(null)} className="font-bold text-slate-500">{'\u2715'}</button>
           </div>

@@ -97,9 +97,13 @@ export default function TrafficMap({
         type: 'geojson', data: { type: 'FeatureCollection', features: [] },
         attribution: 'Tránsito en vivo © TomTom',
       });
+      // Borde blanco debajo, para que resalten sobre el mapa.
+      map.addLayer({ id: 'live-casing', type: 'line', source: 'live-traffic', filter: ['==', ['geometry-type'], 'LineString'],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 11, 7, 14, 9, 17, 13], 'line-opacity': 0.9 } });
       map.addLayer({ id: 'live-lines', type: 'line', source: 'live-traffic', filter: ['==', ['geometry-type'], 'LineString'],
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': ['get', 'color'], 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 3, 16, 7], 'line-opacity': 0.85 } });
+        paint: { 'line-color': ['get', 'color'], 'line-width': ['interpolate', ['linear'], ['zoom'], 11, 4.5, 14, 6, 17, 9], 'line-opacity': 0.95 } });
       map.addLayer({ id: 'live-points', type: 'circle', source: 'live-traffic', filter: ['==', ['geometry-type'], 'Point'],
         paint: { 'circle-color': ['get', 'color'], 'circle-radius': 7, 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 } });
 
