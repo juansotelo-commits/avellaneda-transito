@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 if (typeof window !== 'undefined' && (maplibregl as any).setWorkerUrl) { (maplibregl as any).setWorkerUrl('/maplibre-gl-worker.mjs'); }
-import { TRAFFIC_COLOR_MAP, type CorridorDTO, type IncidentDTO, type SignalDTO } from '@/types/traffic';
+import { LIVE_KIND_LABELS, TRAFFIC_COLOR_MAP, type CorridorDTO, type IncidentDTO, type LiveIncidentDTO, type SignalDTO } from '@/types/traffic';
 import { AVELLANEDA_CENTER } from '@/lib/avellaneda-network';
 
 interface TrafficMapProps {
@@ -14,6 +14,39 @@ interface TrafficMapProps {
   onPickLocation: (coords: { lat: number; lng: number }) => void; focusCoords?: { lat: number; lng: number } | null;
   userLocation?: { lat: number; lng: number } | null;
   searchPlace?: { lat: number; lng: number; label: string } | null;
+  liveIncidents?: LiveIncidentDTO[]; showLive?: boolean;
+}
+
+function liveColor(inc: LiveIncidentDTO) {
+  if (inc.kind === 'CORTE') return '#18181b';
+  if (inc.kind === 'OBRA' || inc.kind === 'CARRIL_CERRADO') return '#7c3aed';
+  if (inc.kind === 'ACCIDENTE' || inc.severity === 3) return '#dc2626';
+  if (inc.severity === 2) return '#f97316';
+  return '#eab308';
+}
+
+function livePopupContent(p: Record<string, unknown>) {
+  const root = document.createElement('div');
+  root.className = 'live-popup';
+  const title = document.createElement('p');
+  title.className = 'live-popup__title';
+  title.textContent = String(p.title ?? 'Incidente');
+  root.appendChild(title);
+  const lines = [
+    p.description && p.description !== p.title ? String(p.description) : null,
+    p.from ? `${p.from}${p.to ? ` → ${p.to}` : ''}` : null,
+    typeof p.delayMinutes === 'number' && p.delayMinutes > 0 ? `Demora estimada: ${p.delayMinutes} min` : null,
+  ].filter(Boolean) as string[];
+  for (const text of lines) {
+    const el = document.createElement('p');
+    el.textContent = text;
+    root.appendChild(el);
+  }
+  const source = document.createElement('p');
+  source.className = 'live-popup__source';
+  source.textContent = 'Fuente: TomTom (en vivo)';
+  root.appendChild(source);
+  return root;
 }
 
 function createUserLocationElement() {
@@ -33,7 +66,10 @@ const SIGNAL_COLOR: Record<string, string> = {
 export default function TrafficMap({
   corridors, signals, incidents, showSignals, pickLocationMode, pickedCoords,
   onSelectSignal, onSelectIncident, onPickLocation, focusCoords, userLocation, searchPlace,
+  liveIncidents = [], showLive = true,
 }: TrafficMapProps) {
+  const pickModeRef = useRef(pickLocationMode);
+  useEffect(() => { pickModeRef.current = pickLocationMode; }, [pickLocationMode]);
   const searchMarkerRef = useRef<maplibregl.Marker | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -55,6 +91,28 @@ export default function TrafficMap({
       map.addLayer({ id: 'corridors-casing', type: 'line', source: 'avellaneda-corridors', paint: { 'line-color': '#ffffff', 'line-width': 7, 'line-opacity': 0.8 } });
       map.addLayer({ id: 'corridors-status', type: 'line', source: 'avellaneda-corridors', layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: { 'line-color': ['get', 'color'], 'line-width': ['case', ['==', ['get', 'isCabaAccess'], true], 5.5, 4], 'line-opacity': 0.92 } });
+
+      // Incidentes en vivo (TomTom)
+      map.addSource('live-traffic', {
+        type: 'geojson', data: { type: 'FeatureCollection', features: [] },
+        attribution: 'Tránsito en vivo © TomTom',
+      });
+      map.addLayer({ id: 'live-lines', type: 'line', source: 'live-traffic', filter: ['==', ['geometry-type'], 'LineString'],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': ['get', 'color'], 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 3, 16, 7], 'line-opacity': 0.85 } });
+      map.addLayer({ id: 'live-points', type: 'circle', source: 'live-traffic', filter: ['==', ['geometry-type'], 'Point'],
+        paint: { 'circle-color': ['get', 'color'], 'circle-radius': 7, 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 } });
+
+      const showPopup = (e: maplibregl.MapLayerMouseEvent) => {
+        if (pickModeRef.current || !e.features?.length) return;
+        new maplibregl.Popup({ closeButton: true, maxWidth: '260px', className: 'live-popup-wrap' })
+          .setLngLat(e.lngLat).setDOMContent(livePopupContent(e.features[0].properties ?? {})).addTo(map);
+      };
+      for (const layer of ['live-lines', 'live-points']) {
+        map.on('click', layer, showPopup);
+        map.on('mouseenter', layer, () => { if (!pickModeRef.current) map.getCanvas().style.cursor = 'pointer'; });
+        map.on('mouseleave', layer, () => { if (!pickModeRef.current) map.getCanvas().style.cursor = ''; });
+      }
     });
     mapRef.current = map;
     return () => { map.remove(); mapRef.current = null; };
@@ -77,6 +135,27 @@ export default function TrafficMap({
     };
     if (map.isStyleLoaded()) updateSource(); else map.once('load', updateSource);
   }, [corridors]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const updateLive = () => {
+      const source = map.getSource('live-traffic') as maplibregl.GeoJSONSource | undefined;
+      if (!source) return;
+      source.setData({
+        type: 'FeatureCollection',
+        features: (showLive ? liveIncidents : []).map((inc) => ({
+          type: 'Feature',
+          properties: {
+            title: LIVE_KIND_LABELS[inc.kind], description: inc.description, from: inc.from, to: inc.to,
+            delayMinutes: inc.delayMinutes, color: liveColor(inc),
+          },
+          geometry: inc.geometry,
+        })),
+      });
+    };
+    if (map.isStyleLoaded()) updateLive(); else map.once('load', updateLive);
+  }, [liveIncidents, showLive]);
 
   useEffect(() => {
     const map = mapRef.current;

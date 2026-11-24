@@ -22,6 +22,31 @@ export interface IncidentDTO {
   resolutions: number; reliability: number; reportedAt: string; lastActivityAt: string;
 }
 
+export type LiveIncidentKind =
+  | 'EMBOTELLAMIENTO' | 'CORTE' | 'CARRIL_CERRADO' | 'OBRA' | 'ACCIDENTE'
+  | 'VEHICULO_DETENIDO' | 'INUNDACION' | 'OTRO';
+
+/** Incidente en vivo de un proveedor externo (TomTom). */
+export interface LiveIncidentDTO {
+  id: string; kind: LiveIncidentKind;
+  /** 1 = leve, 2 = moderado, 3 = grave */
+  severity: 1 | 2 | 3;
+  description: string; from: string | null; to: string | null;
+  delayMinutes: number | null; lengthMeters: number | null; startTime: string | null;
+  geometry: { type: 'LineString'; coordinates: [number, number][] } | { type: 'Point'; coordinates: [number, number] };
+}
+
+export interface LiveTrafficResponse {
+  enabled: boolean; provider: string | null; updatedAt: string | null;
+  incidents: LiveIncidentDTO[]; error?: string;
+}
+
+export const LIVE_KIND_LABELS: Record<LiveIncidentKind, string> = {
+  EMBOTELLAMIENTO: 'Tránsito lento', CORTE: 'Calle cortada', CARRIL_CERRADO: 'Carril cerrado',
+  OBRA: 'Obra', ACCIDENTE: 'Accidente', VEHICULO_DETENIDO: 'Vehículo detenido',
+  INUNDACION: 'Calle inundada', OTRO: 'Incidente',
+};
+
 export const INCIDENT_LABELS: Record<IncidentType, string> = {
   SEMAFORO_APAGADO: 'Sem\u00e1foro apagado', SEMAFORO_TILDADO: 'Sem\u00e1foro tildado',
   SEMAFORO_IRREGULAR: 'Sem\u00e1foro funcionando mal', CALLE_CORTADA: 'Calle cortada',

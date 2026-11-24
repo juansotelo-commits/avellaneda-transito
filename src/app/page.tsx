@@ -6,7 +6,7 @@ import TrafficMap from '@/components/TrafficMap';
 import ReportModal from '@/components/ReportModal';
 import CabaRouteModal from '@/components/CabaRouteModal';
 import AddressSearch, { type SearchPlace } from '@/components/AddressSearch';
-import { INCIDENT_LABELS, TRAFFIC_COLOR_MAP, type CorridorDTO, type IncidentDTO, type OverallStatus, type SignalDTO } from '@/types/traffic';
+import { INCIDENT_LABELS, TRAFFIC_COLOR_MAP, type CorridorDTO, type IncidentDTO, type LiveTrafficResponse, type OverallStatus, type SignalDTO } from '@/types/traffic';
 
 
 
@@ -31,6 +31,8 @@ export default function HomePage() {
   const [presetSignalForReport, setPresetSignalForReport] = useState<{ id: string; intersection: string } | null>(null);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [searchPlace, setSearchPlace] = useState<SearchPlace | null>(null);
+  const [live, setLive] = useState<LiveTrafficResponse | null>(null);
+  const [showLive, setShowLive] = useState(true);
   const [showLocationPrompt, setShowLocationPrompt] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   const watchIdRef = useRef<number | null>(null);
@@ -96,6 +98,24 @@ export default function HomePage() {
     return () => clearInterval(timer);
   }, [loadOverview]);
 
+  // Tránsito en vivo (TomTom): se actualiza cada 3 minutos.
+  useEffect(() => {
+    let stopped = false;
+    const loadLive = async () => {
+      try {
+        const res = await fetch('/api/live-traffic');
+        if (res.ok && !stopped) setLive(await res.json());
+      } catch { /* sin conexión: se reintenta en el próximo ciclo */ }
+    };
+    loadLive();
+    const timer = setInterval(loadLive, 180000);
+    return () => { stopped = true; clearInterval(timer); };
+  }, []);
+
+  const liveIncidents = live?.enabled ? live.incidents : [];
+  const liveJams = liveIncidents.filter((i) => i.kind === 'EMBOTELLAMIENTO').length;
+  const liveCuts = liveIncidents.filter((i) => i.kind === 'CORTE').length;
+
   const openReportWithGPS = (signal?: SignalDTO) => {
     setPresetSignalForReport(signal ? { id: signal.id, intersection: signal.intersection } : null);
     if (signal) { setPickedCoords({ lat: signal.lat, lng: signal.lng }); setShowReportModal(true); return; }
@@ -131,6 +151,7 @@ export default function HomePage() {
         onSelectIncident={(i) => { setSelectedSignal(null); setSelectedIncident(i); }}
         onPickLocation={(coords) => setPickedCoords(coords)} focusCoords={focusCoords}
         userLocation={userLocation} searchPlace={searchPlace}
+        liveIncidents={liveIncidents} showLive={showLive}
       />
       {userLocation && !selectedSignal && !selectedIncident && (
         <button onClick={() => setFocusCoords({ ...userLocation })} aria-label={'Centrar el mapa en mi ubicación'}
@@ -170,6 +191,11 @@ export default function HomePage() {
             <Link href="/admin" className="px-2.5 py-1.5 rounded-lg bg-slate-100 text-slate-700 text-xs font-bold">Admin</Link>
           </div>
           {data && <p className="text-xs text-slate-600 mt-1 leading-snug">{data.avellanedaAhora.summary}</p>}
+          {live?.enabled && live.updatedAt && (
+            <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+              {`\u{1F4E1} En vivo: ${liveJams} ${liveJams === 1 ? 'zona' : 'zonas'} con tránsito lento · ${liveCuts} ${liveCuts === 1 ? 'corte' : 'cortes'} · ${new Date(live.updatedAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}`}
+            </p>
+          )}
         </div>
         <div className="pointer-events-auto flex gap-2 flex-wrap">
           <button onClick={() => setShowSignals((v) => !v)} className={`px-3 py-2 rounded-xl text-xs font-black shadow-md border ${showSignals ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-800 border-slate-200'}`}>
@@ -178,6 +204,12 @@ export default function HomePage() {
           <button onClick={() => setShowAccessDrawer((v) => !v)} className="px-3 py-2 rounded-xl text-xs font-black shadow-md bg-white text-slate-800 border border-slate-200">
             {`\u{1F309} Accesos a CABA (${data?.cabaAccesses.length ?? 0})`}
           </button>
+          {live?.enabled && (
+            <button onClick={() => setShowLive((v) => !v)} aria-pressed={showLive}
+              className={`px-3 py-2 rounded-xl text-xs font-black shadow-md border ${showLive ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-800 border-slate-200'}`}>
+              {`\u{1F4E1} En vivo ${showLive ? 'ON' : 'OFF'}`}
+            </button>
+          )}
         </div>
         <AddressSearch
           onSelect={(place) => { setShowAccessDrawer(false); setSearchPlace(place); }}
