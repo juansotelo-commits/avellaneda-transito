@@ -19,6 +19,8 @@ export interface SignalSeed {
   corridorCode: string;
   lat: number;
   lng: number;
+  /** Nombres anteriores, para encontrar y corregir el semáforo ya guardado en la base. */
+  formerNames?: string[];
 }
 
 // Trazados tomados de OpenStreetMap (© colaboradores de OpenStreetMap, licencia ODbL),
@@ -53,9 +55,10 @@ export const AVELLANEDA_CORRIDORS: CorridorSeed[] = [
       [-58.35229, -34.64077],
       [-58.35123, -34.64184],
       [-58.34814, -34.64425],
+      [-58.34341, -34.64804],
     ],
-    centerLat: -34.63911,
-    centerLng: -58.35437,
+    centerLat: -34.64103,
+    centerLng: -58.35204,
   },
   {
     code: 'AV_MITRE',
@@ -175,12 +178,17 @@ export const AVELLANEDA_CORRIDORS: CorridorSeed[] = [
 ];
 
 export const INITIAL_SIGNALS: SignalSeed[] = [
-  { intersection: 'Av. Mitre y Subida Puente Pueyrredón', corridorCode: 'PUENTE_PUEYRREDON', lat: -34.6572, lng: -58.3712 },
-  { intersection: 'Av. Belgrano y Gral. Güemes', corridorCode: 'AV_BELGRANO', lat: -34.6632, lng: -58.3742 },
-  { intersection: 'Av. Mitre y Alsina (Plaza Alsina)', corridorCode: 'AV_MITRE', lat: -34.6627, lng: -58.3656 },
-  { intersection: 'Av. Mitre y Montes de Oca', corridorCode: 'AV_MITRE', lat: -34.6685, lng: -58.3598 },
-  { intersection: 'Av. Mitre y Crisólogo Larralde', corridorCode: 'AV_MITRE', lat: -34.6765, lng: -58.3515 },
-  { intersection: 'Av. Mitre y Av. Ramón Franco (Villa Domínico)', corridorCode: 'AV_MITRE', lat: -34.6915, lng: -58.3355 },
-  { intersection: 'Av. Belgrano y Arenales', corridorCode: 'AV_BELGRANO', lat: -34.6675, lng: -58.3655 },
-  { intersection: 'Av. Debenedetti y Puente Nicolás Avellaneda', corridorCode: 'PUENTE_NICOLAS_AVELLANEDA', lat: -34.6425, lng: -58.3568 },
+  // Ubicaciones de las esquinas: Georef (datos.gob.ar) y OpenStreetMap.
+  { intersection: 'Av. Mitre y Subida Puente Pueyrredón', corridorCode: 'PUENTE_PUEYRREDON', lat: -34.65749, lng: -58.37279 },
+  { intersection: 'Av. Belgrano y Gral. Güemes', corridorCode: 'AV_BELGRANO', lat: -34.67253, lng: -58.36101 },
+  { intersection: 'Av. Mitre y Alsina (Plaza Alsina)', corridorCode: 'AV_MITRE', lat: -34.66285, lng: -58.36439 },
+  { intersection: 'Av. Mitre y Montes de Oca', corridorCode: 'AV_MITRE', lat: -34.65958, lng: -58.36872 },
+  {
+    intersection: 'Av. Mitre y Av. Mujeres Argentinas (Sarandí)', corridorCode: 'AV_MITRE', lat: -34.6784, lng: -58.34676,
+    // Antes figuraba "Crisólogo Larralde", una calle que no existe en Avellaneda.
+    formerNames: ['Av. Mitre y Crisólogo Larralde'],
+  },
+  { intersection: 'Av. Mitre y Av. Ramón Franco (Villa Domínico)', corridorCode: 'AV_MITRE', lat: -34.69506, lng: -58.32892 },
+  { intersection: 'Av. Belgrano y Arenales', corridorCode: 'AV_BELGRANO', lat: -34.66824, lng: -58.36384 },
+  { intersection: 'Av. Debenedetti y Puente Nicolás Avellaneda', corridorCode: 'PUENTE_NICOLAS_AVELLANEDA', lat: -34.64804, lng: -58.34341 },
 ];

@@ -35,6 +35,16 @@ async function main() {
         },
       });
     }
+  } else {
+    // Semáforos ya cargados: se corrige su ubicación (y el nombre, si cambió).
+    // No se tocan el estado, los reportes ni los semáforos agregados desde el panel de admin.
+    for (const s of INITIAL_SIGNALS) {
+      const { count } = await prisma.trafficSignal.updateMany({
+        where: { municipalityId: avellaneda.id, intersection: { in: [s.intersection, ...(s.formerNames ?? [])] } },
+        data: { intersection: s.intersection, corridorCode: s.corridorCode, lat: s.lat, lng: s.lng },
+      });
+      if (count > 0) console.log(`Semáforo actualizado: ${s.intersection}`);
+    }
   }
   console.log('Seed de Avellaneda Tr\u00e1nsito completado.');
 }
