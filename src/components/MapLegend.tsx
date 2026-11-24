@@ -1,5 +1,6 @@
 'use client';
 
+import { useLayoutEffect, useRef, useState } from 'react';
 import { TRAFFIC_COLOR_MAP } from '@/types/traffic';
 
 interface LegendItem { color: string; label: string; shape: 'line' | 'dot' }
@@ -45,6 +46,25 @@ function Section({ title, items }: { title: string; items: LegendItem[] }) {
 interface MapLegendProps { open: boolean; onToggle: () => void; showLive: boolean }
 
 export default function MapLegend({ open, onToggle, showLive }: MapLegendProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [maxHeight, setMaxHeight] = useState<number | null>(null);
+
+  // El panel crece hacia arriba: se mide dónde termina el encabezado (con el buscador)
+  // para que nunca lo tape, sea cual sea el tamaño de la pantalla.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const measure = () => {
+      const panel = panelRef.current;
+      const header = document.querySelector('header');
+      if (!panel || !header) return;
+      const panelBottom = panel.getBoundingClientRect().bottom;
+      setMaxHeight(Math.max(160, panelBottom - header.getBoundingClientRect().bottom - 12));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [open]);
+
   return (
     <>
       <button onClick={onToggle} aria-label={open ? 'Cerrar referencias' : 'Ver referencias de colores'} aria-expanded={open}
@@ -53,10 +73,9 @@ export default function MapLegend({ open, onToggle, showLive }: MapLegendProps) 
         Referencias
       </button>
       {open && (
-        <div role="dialog" aria-label="Referencias de colores"
-          className="absolute bottom-40 left-3 z-30 w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 space-y-3"
-          // Que no suba más allá del buscador: deja libres ~26rem (arriba el encabezado, abajo los botones).
-          style={{ maxHeight: 'min(55vh, calc(100dvh - 26rem))' }}>
+        <div ref={panelRef} role="dialog" aria-label="Referencias de colores"
+          className="absolute bottom-40 left-3 z-30 w-72 max-w-[calc(100vw-1.5rem)] max-h-[55vh] overflow-y-auto bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 space-y-3"
+          style={maxHeight ? { maxHeight } : undefined}>
           <div className="flex items-center justify-between">
             <h3 className="font-black text-sm text-slate-900">Referencias</h3>
             <button onClick={onToggle} aria-label="Cerrar" className="text-slate-500 font-bold">{'✕'}</button>
