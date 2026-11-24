@@ -76,6 +76,9 @@ export default function TrafficMap({
   const markersRef = useRef<maplibregl.Marker[]>([]);
   const pickMarkerRef = useRef<maplibregl.Marker | null>(null);
   const userMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const emptyCollection: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
+  const corridorsDataRef = useRef<GeoJSON.FeatureCollection>(emptyCollection);
+  const liveDataRef = useRef<GeoJSON.FeatureCollection>(emptyCollection);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -87,14 +90,14 @@ export default function TrafficMap({
     });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
     map.on('load', () => {
-      map.addSource('avellaneda-corridors', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      map.addSource('avellaneda-corridors', { type: 'geojson', data: corridorsDataRef.current });
       map.addLayer({ id: 'corridors-casing', type: 'line', source: 'avellaneda-corridors', paint: { 'line-color': '#ffffff', 'line-width': 7, 'line-opacity': 0.8 } });
       map.addLayer({ id: 'corridors-status', type: 'line', source: 'avellaneda-corridors', layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: { 'line-color': ['get', 'color'], 'line-width': ['case', ['==', ['get', 'isCabaAccess'], true], 5.5, 4], 'line-opacity': 0.92 } });
 
       // Incidentes en vivo (TomTom)
       map.addSource('live-traffic', {
-        type: 'geojson', data: { type: 'FeatureCollection', features: [] },
+        type: 'geojson', data: liveDataRef.current,
         attribution: 'Tránsito en vivo © TomTom',
       });
       // Borde blanco debajo, para que resalten sobre el mapa.
@@ -122,43 +125,34 @@ export default function TrafficMap({
     return () => { map.remove(); mapRef.current = null; };
   }, []);
 
+  // Los datos se guardan siempre en estas refs. Si las capas todavía no existen,
+  // el handler de 'load' los aplica al crearlas; si ya existen, se aplican al instante.
+  // (Antes se esperaba un 'load' que a veces ya había ocurrido, y el mapa quedaba sin líneas.)
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const updateSource = () => {
-      const source = map.getSource('avellaneda-corridors') as maplibregl.GeoJSONSource | undefined;
-      if (!source) return;
-      source.setData({
-        type: 'FeatureCollection',
-        features: corridors.map((c) => ({
-          type: 'Feature',
-          properties: { code: c.code, name: c.name, status: c.status, isCabaAccess: c.isCabaAccess, color: TRAFFIC_COLOR_MAP[c.status]?.hex ?? '#64748b' },
-          geometry: { type: 'LineString', coordinates: c.coordinates },
-        })),
-      });
+    corridorsDataRef.current = {
+      type: 'FeatureCollection',
+      features: corridors.map((c) => ({
+        type: 'Feature',
+        properties: { code: c.code, name: c.name, status: c.status, isCabaAccess: c.isCabaAccess, color: TRAFFIC_COLOR_MAP[c.status]?.hex ?? '#64748b' },
+        geometry: { type: 'LineString', coordinates: c.coordinates },
+      })),
     };
-    if (map.isStyleLoaded()) updateSource(); else map.once('load', updateSource);
+    (mapRef.current?.getSource('avellaneda-corridors') as maplibregl.GeoJSONSource | undefined)?.setData(corridorsDataRef.current);
   }, [corridors]);
 
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const updateLive = () => {
-      const source = map.getSource('live-traffic') as maplibregl.GeoJSONSource | undefined;
-      if (!source) return;
-      source.setData({
-        type: 'FeatureCollection',
-        features: (showLive ? liveIncidents : []).map((inc) => ({
-          type: 'Feature',
-          properties: {
-            title: LIVE_KIND_LABELS[inc.kind], description: inc.description, from: inc.from, to: inc.to,
-            delayMinutes: inc.delayMinutes, color: liveColor(inc),
-          },
-          geometry: inc.geometry,
-        })),
-      });
+    liveDataRef.current = {
+      type: 'FeatureCollection',
+      features: (showLive ? liveIncidents : []).map((inc) => ({
+        type: 'Feature',
+        properties: {
+          title: LIVE_KIND_LABELS[inc.kind], description: inc.description, from: inc.from, to: inc.to,
+          delayMinutes: inc.delayMinutes, color: liveColor(inc),
+        },
+        geometry: inc.geometry,
+      })),
     };
-    if (map.isStyleLoaded()) updateLive(); else map.once('load', updateLive);
+    (mapRef.current?.getSource('live-traffic') as maplibregl.GeoJSONSource | undefined)?.setData(liveDataRef.current);
   }, [liveIncidents, showLive]);
 
   useEffect(() => {
