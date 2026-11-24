@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { INCIDENT_LABELS, type IncidentDTO, type SignalDTO } from '@/types/traffic';
 import { AVELLANEDA_CORRIDORS } from '@/lib/avellaneda-network';
+import { findIntersection, nearestCorridorCode, type GeorefMatch } from '@/lib/georef';
 
 export default function AdminPage() {
   const [authed, setAuthed] = useState(false);
@@ -18,8 +19,15 @@ export default function AdminPage() {
   const [cutLat, setCutLat] = useState('-34.6625');
   const [cutLng, setCutLng] = useState('-58.3678');
   const [sigName, setSigName] = useState('');
-  const [sigLat, setSigLat] = useState('-34.6650');
-  const [sigLng, setSigLng] = useState('-58.3620');
+  // La ubicación arranca vacía: se completa buscando la esquina (antes había un valor fijo
+  // y todos los semáforos que no se corregían a mano quedaban apilados en el mismo punto).
+  const [sigLat, setSigLat] = useState('');
+  const [sigLng, setSigLng] = useState('');
+  const [sigMatches, setSigMatches] = useState<GeorefMatch[]>([]);
+  const [sigChosen, setSigChosen] = useState<string | null>(null);
+  const [sigGeoStatus, setSigGeoStatus] = useState<'idle' | 'buscando' | 'sin-resultado' | 'error'>('idle');
+  const [sigError, setSigError] = useState<string | null>(null);
+  const [sigSearchedFor, setSigSearchedFor] = useState('');
 
   const loadData = useCallback(async () => {
     const [ovRes, stRes] = await Promise.all([fetch('/api/overview'), fetch('/api/admin/cuts')]);
@@ -50,11 +58,39 @@ export default function AdminPage() {
   const updateSignalStatus = async (id: string, status: string) => {
     await fetch('/api/admin/signals', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, status }) }); loadData();
   };
+  const chooseSignalMatch = (m: GeorefMatch) => {
+    setSigLat(String(m.lat)); setSigLng(String(m.lng)); setSigChosen(m.label); setSigError(null);
+  };
+  const searchSignalCorner = async (force = false) => {
+    const name = sigName.trim();
+    if (name.length < 5 || (!force && name === sigSearchedFor)) return;
+    setSigSearchedFor(name); setSigGeoStatus('buscando'); setSigMatches([]); setSigChosen(null);
+    try {
+      const found = await findIntersection(name);
+      setSigMatches(found);
+      setSigGeoStatus(found.length ? 'idle' : 'sin-resultado');
+      if (found.length) chooseSignalMatch(found[0]);
+    } catch {
+      setSigGeoStatus('error');
+    }
+  };
   const createSignal = async (e: React.FormEvent) => {
     e.preventDefault();
-    await fetch('/api/admin/signals', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ intersection: sigName, lat: Number(sigLat), lng: Number(sigLng), status: 'FUNCIONANDO' }) });
-    setSigName(''); loadData();
+    setSigError(null);
+    const lat = Number(sigLat), lng = Number(sigLng);
+    if (!sigLat || !sigLng || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+      setSigError('Falta la ubicación: tocá "Buscar esquina" o cargá latitud y longitud.');
+      return;
+    }
+    const res = await fetch('/api/admin/signals', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ intersection: sigName.trim(), lat, lng, corridorCode: nearestCorridorCode(lat, lng), status: 'FUNCIONANDO' }) });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      setSigError(err.error || 'No se pudo guardar el semáforo.');
+      return;
+    }
+    setSigName(''); setSigLat(''); setSigLng(''); setSigMatches([]); setSigChosen(null); setSigSearchedFor(''); setSigGeoStatus('idle');
+    loadData();
   };
 
   if (!authed) {
@@ -106,11 +142,33 @@ export default function AdminPage() {
         </form>
         <form onSubmit={createSignal} className="bg-white p-4 rounded-2xl border space-y-3">
           <h2 className="font-black text-slate-900">{'Cargar sem\u00e1foro manualmente'}</h2>
-          <input required placeholder={'Intersecci\u00f3n (ej: Av. Belgrano y G\u00fcemes)'} value={sigName} onChange={(e) => setSigName(e.target.value)} className="w-full border rounded-xl p-2.5 text-sm" />
-          <div className="grid grid-cols-2 gap-2">
-            <input value={sigLat} onChange={(e) => setSigLat(e.target.value)} placeholder="Latitud" className="border rounded-xl p-2 text-sm" />
-            <input value={sigLng} onChange={(e) => setSigLng(e.target.value)} placeholder="Longitud" className="border rounded-xl p-2 text-sm" />
+          <div className="flex gap-2">
+            <input required placeholder={'Intersecci\u00f3n (ej: Av. Belgrano y G\u00fcemes)'} value={sigName}
+              onChange={(e) => { setSigName(e.target.value); setSigChosen(null); setSigMatches([]); setSigLat(''); setSigLng(''); setSigGeoStatus('idle'); setSigSearchedFor(''); }}
+              onBlur={() => void searchSignalCorner()} className="flex-1 min-w-0 border rounded-xl p-2.5 text-sm" />
+            <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => void searchSignalCorner(true)}
+              className="shrink-0 px-3 rounded-xl bg-slate-100 text-slate-800 font-black text-xs">{'\u{1F4CD} Buscar esquina'}</button>
           </div>
+          {sigGeoStatus === 'buscando' && <p className="text-xs text-slate-500">Buscando la esquina\u2026</p>}
+          {sigGeoStatus === 'sin-resultado' && <p className="text-xs text-amber-700">{'No encontr\u00e9 esa esquina en Avellaneda. Revis\u00e1 el nombre o carg\u00e1 latitud y longitud a mano.'}</p>}
+          {sigGeoStatus === 'error' && <p className="text-xs text-amber-700">{'No se pudo consultar el buscador de direcciones. Prob\u00e1 de nuevo o carg\u00e1 la ubicaci\u00f3n a mano.'}</p>}
+          {sigMatches.length > 1 && (
+            <div className="space-y-1">
+              <p className="text-[11px] font-bold text-slate-500">{'Encontr\u00e9 varias opciones, eleg\u00ed la correcta:'}</p>
+              {sigMatches.map((m) => (
+                <button type="button" key={`${m.lat},${m.lng}`} onClick={() => chooseSignalMatch(m)}
+                  className={`w-full text-left text-xs p-2 rounded-lg border ${sigChosen === m.label && sigLat === String(m.lat) ? 'border-blue-600 bg-blue-50 font-bold' : 'border-slate-200'}`}>
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {sigChosen && <p className="text-xs text-emerald-700 font-semibold">{`\u2713 Ubicaci\u00f3n: ${sigChosen}`}</p>}
+          <div className="grid grid-cols-2 gap-2">
+            <input value={sigLat} onChange={(e) => { setSigLat(e.target.value); setSigChosen(null); }} placeholder="Latitud" inputMode="decimal" className="border rounded-xl p-2 text-sm" />
+            <input value={sigLng} onChange={(e) => { setSigLng(e.target.value); setSigChosen(null); }} placeholder="Longitud" inputMode="decimal" className="border rounded-xl p-2 text-sm" />
+          </div>
+          {sigError && <p className="text-xs font-bold text-red-600">{sigError}</p>}
           <button className="w-full py-2.5 rounded-xl bg-blue-600 text-white font-black text-sm">{'Agregar intersecci\u00f3n semaforizada'}</button>
         </form>
       </div>

@@ -1,19 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAdminSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { DEFAULT_SIGNAL_POSITION } from '@/lib/avellaneda-network';
 
 export async function POST(req: NextRequest) {
   const session = await verifyAdminSession();
   if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
 
   const { intersection, corridorCode, lat, lng, status } = await req.json();
+  const name = typeof intersection === 'string' ? intersection.trim() : '';
+  const latN = Number(lat), lngN = Number(lng);
+  if (!name) return NextResponse.json({ error: 'Falta el nombre de la intersección' }, { status: 400 });
+  // Mismos límites que los reportes: Avellaneda y alrededores.
+  if (!Number.isFinite(latN) || !Number.isFinite(lngN) || latN < -34.76 || latN > -34.61 || lngN < -58.43 || lngN > -58.27) {
+    return NextResponse.json({ error: 'La ubicación falta o queda fuera de Avellaneda' }, { status: 400 });
+  }
+  // El formulario viejo proponía siempre este punto; si llega, es que no se buscó la esquina.
+  if (Math.abs(latN - DEFAULT_SIGNAL_POSITION.lat) < 1e-4 && Math.abs(lngN - DEFAULT_SIGNAL_POSITION.lng) < 1e-4) {
+    return NextResponse.json({ error: 'Esa es la ubicación por defecto: buscá la esquina real antes de guardar' }, { status: 400 });
+  }
   const muni = await prisma.municipality.findUnique({ where: { slug: 'avellaneda' } });
   if (!muni) return NextResponse.json({ error: 'Sin municipio' }, { status: 500 });
 
   const signal = await prisma.trafficSignal.create({
     data: {
-      municipalityId: muni.id, intersection, corridorCode: corridorCode || null,
-      lat: Number(lat), lng: Number(lng), status: status || 'FUNCIONANDO',
+      municipalityId: muni.id, intersection: name, corridorCode: corridorCode || null,
+      lat: latN, lng: lngN, status: status || 'FUNCIONANDO',
       sourceType: 'ADMIN', lastReportedAt: new Date(),
     },
   });
