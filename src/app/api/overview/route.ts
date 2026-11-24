@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { refreshIncidentReliability } from '@/lib/reliability';
-import type { CorridorDTO, IncidentDTO, OverallStatus, SignalDTO, TrafficLevel } from '@/types/traffic';
+import { getLiveTraffic } from '@/lib/live-traffic';
+import { computeAvellanedaAhora } from '@/lib/avellaneda-status';
+import type { CorridorDTO, IncidentDTO, SignalDTO, TrafficLevel } from '@/types/traffic';
 
 const TRAFFIC_LEVELS: TrafficLevel[] = ['NORMAL', 'MODERADO', 'INTENSO', 'CRITICO', 'CORTADO', 'SIN_DATOS'];
 const CUT_TYPES = new Set(['CALLE_CORTADA', 'AVENIDA_CORTADA']);
@@ -22,10 +24,6 @@ function parseCoordinates(json: string): [number, number][] {
   } catch {
     return [];
   }
-}
-
-function plural(n: number, singular: string, pluralForm: string) {
-  return `${n} ${n === 1 ? singular : pluralForm}`;
 }
 
 export async function GET() {
@@ -72,25 +70,14 @@ export async function GET() {
     });
 
     const cabaAccesses = corridors.filter((c) => c.isCabaAccess);
-    const cutsCount = incidents.filter((i) => CUT_TYPES.has(i.type)).length;
-    const criticalCorridors = corridors.filter((c) => c.status === 'CRITICO' || c.status === 'CORTADO').length;
-    const activeCount = incidents.length;
 
-    let status: OverallStatus;
-    let label: string;
-    let emoji: string;
-    if (activeCount === 0) { status = 'NORMAL'; label = 'Circulación normal'; emoji = '\u{1F7E2}'; }
-    else if (cutsCount >= 3 || criticalCorridors >= 3) { status = 'CRITICO'; label = 'Tránsito crítico'; emoji = '\u{1F534}'; }
-    else if (cutsCount > 0 || criticalCorridors > 0) { status = 'COMPLICADO'; label = 'Tránsito complicado'; emoji = '\u{1F7E0}'; }
-    else { status = 'MODERADO'; label = 'Tránsito moderado'; emoji = '\u{1F7E1}'; }
-
-    const summary = activeCount === 0
-      ? 'No hay reportes activos en Avellaneda.'
-      : `${plural(activeCount, 'reporte activo', 'reportes activos')}` +
-        (cutsCount > 0 ? ` · ${plural(cutsCount, 'corte', 'cortes')}` : '') + '.';
+    // Incidentes en vivo (TomTom). Si no hay clave o falla, se usa solo lo de los vecinos.
+    const live = await getLiveTraffic().catch(() => null);
+    const liveIncidents = live?.enabled && live.updatedAt ? live.incidents : null;
+    const avellanedaAhora = computeAvellanedaAhora(incidents, corridors, liveIncidents);
 
     return NextResponse.json({
-      avellanedaAhora: { status, label, emoji, activeCount, cutsCount, summary },
+      avellanedaAhora,
       corridors,
       signals,
       incidents,

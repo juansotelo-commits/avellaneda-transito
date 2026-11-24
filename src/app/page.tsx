@@ -6,6 +6,7 @@ import TrafficMap from '@/components/TrafficMap';
 import ReportModal from '@/components/ReportModal';
 import CabaRouteModal from '@/components/CabaRouteModal';
 import AddressSearch, { type SearchPlace } from '@/components/AddressSearch';
+import MapLegend from '@/components/MapLegend';
 import { INCIDENT_LABELS, TRAFFIC_COLOR_MAP, type CorridorDTO, type IncidentDTO, type LiveTrafficResponse, type OverallStatus, type SignalDTO } from '@/types/traffic';
 
 
@@ -113,8 +114,7 @@ export default function HomePage() {
   }, []);
 
   const liveIncidents = live?.enabled ? live.incidents : [];
-  const liveJams = liveIncidents.filter((i) => i.kind === 'EMBOTELLAMIENTO').length;
-  const liveCuts = liveIncidents.filter((i) => i.kind === 'CORTE').length;
+  const [showLegend, setShowLegend] = useState(false);
 
   const openReportWithGPS = (signal?: SignalDTO) => {
     setPresetSignalForReport(signal ? { id: signal.id, intersection: signal.intersection } : null);
@@ -153,6 +153,9 @@ export default function HomePage() {
         userLocation={userLocation} searchPlace={searchPlace}
         liveIncidents={liveIncidents} showLive={showLive}
       />
+      {!selectedSignal && !selectedIncident && (
+        <MapLegend open={showLegend} onToggle={() => setShowLegend((v) => !v)} showLive={!!live?.enabled} />
+      )}
       {userLocation && !selectedSignal && !selectedIncident && (
         <button onClick={() => setFocusCoords({ ...userLocation })} aria-label={'Centrar el mapa en mi ubicación'}
           className="absolute bottom-24 right-3 z-20 w-12 h-12 rounded-full bg-white shadow-xl border border-slate-200 flex items-center justify-center text-xl">
@@ -193,7 +196,7 @@ export default function HomePage() {
           {data && <p className="text-xs text-slate-600 mt-1 leading-snug">{data.avellanedaAhora.summary}</p>}
           {live?.enabled && live.updatedAt && (
             <p className="text-[11px] text-slate-500 mt-1 leading-snug">
-              {`\u{1F4E1} En vivo: ${liveJams} ${liveJams === 1 ? 'zona' : 'zonas'} con tránsito lento · ${liveCuts} ${liveCuts === 1 ? 'corte' : 'cortes'} · ${new Date(live.updatedAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' })}`}
+              {`\u{1F4E1} Con datos en vivo de TomTom · actualizado ${new Date(live.updatedAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' })}`}
             </p>
           )}
         </div>
