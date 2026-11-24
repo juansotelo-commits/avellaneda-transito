@@ -1,5 +1,7 @@
 import { PrismaClient } from '@prisma/client';
-import { AVELLANEDA_CENTER, AVELLANEDA_CORRIDORS, INITIAL_SIGNALS } from '../src/lib/avellaneda-network';
+import {
+  ADMIN_SIGNAL_FIXES, AVELLANEDA_CENTER, AVELLANEDA_CORRIDORS, DEFAULT_SIGNAL_POSITION, INITIAL_SIGNALS,
+} from '../src/lib/avellaneda-network';
 
 const prisma = new PrismaClient();
 
@@ -45,6 +47,19 @@ async function main() {
       });
       if (count > 0) console.log(`Semáforo actualizado: ${s.intersection}`);
     }
+  }
+
+  // Semáforos cargados desde Admin que quedaron en la ubicación por defecto (ver ADMIN_SIGNAL_FIXES).
+  const near = (v: number) => ({ gte: v - 0.0001, lte: v + 0.0001 });
+  for (const fix of ADMIN_SIGNAL_FIXES) {
+    const { count } = await prisma.trafficSignal.updateMany({
+      where: {
+        municipalityId: avellaneda.id, intersection: fix.currentName,
+        lat: near(DEFAULT_SIGNAL_POSITION.lat), lng: near(DEFAULT_SIGNAL_POSITION.lng),
+      },
+      data: { intersection: fix.intersection, corridorCode: fix.corridorCode, lat: fix.lat, lng: fix.lng },
+    });
+    if (count > 0) console.log(`Semáforo ubicado en su esquina: ${fix.intersection}`);
   }
   console.log('Seed de Avellaneda Tr\u00e1nsito completado.');
 }
