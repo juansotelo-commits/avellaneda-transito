@@ -55,8 +55,8 @@ export default function MapLegend({ open, onToggle, showLive }: MapLegendProps) 
       {open && (
         <div role="dialog" aria-label="Referencias de colores"
           className="absolute bottom-40 left-3 z-30 w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 space-y-3"
-          // Que no suba más allá del buscador: deja libres ~22rem (arriba el encabezado, abajo los botones).
-          style={{ maxHeight: 'min(55vh, calc(100dvh - 22rem))' }}>
+          // Que no suba más allá del buscador: deja libres ~26rem (arriba el encabezado, abajo los botones).
+          style={{ maxHeight: 'min(55vh, calc(100dvh - 26rem))' }}>
           <div className="flex items-center justify-between">
             <h3 className="font-black text-sm text-slate-900">Referencias</h3>
             <button onClick={onToggle} aria-label="Cerrar" className="text-slate-500 font-bold">{'✕'}</button>
