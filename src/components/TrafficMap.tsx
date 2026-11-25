@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 if (typeof window !== 'undefined' && (maplibregl as any).setWorkerUrl) { (maplibregl as any).setWorkerUrl('/maplibre-gl-worker.mjs'); }
-import { LIVE_KIND_LABELS, TRAFFIC_COLOR_MAP, type CorridorDTO, type IncidentDTO, type LiveIncidentDTO, type SignalDTO } from '@/types/traffic';
+import { INCIDENT_LABELS, LIVE_KIND_LABELS, TRAFFIC_COLOR_MAP, type CorridorDTO, type IncidentDTO, type LiveIncidentDTO, type SignalDTO } from '@/types/traffic';
 import { AVELLANEDA_CENTER } from '@/lib/avellaneda-network';
 
 interface TrafficMapProps {
@@ -49,6 +49,49 @@ function livePopupContent(p: Record<string, unknown>) {
   return root;
 }
 
+function corridorPopupContent(p: Record<string, unknown>) {
+  const root = document.createElement('div');
+  root.className = 'live-popup';
+  const add = (text: string, className?: string) => {
+    const el = document.createElement('p');
+    if (className) el.className = className;
+    el.textContent = text;
+    root.appendChild(el);
+  };
+  add(String(p.name ?? 'Avenida'), 'live-popup__title');
+  add(String(p.statusLabel ?? ''));
+  const count = Number(p.activeIncidentCount ?? 0);
+  add(count > 0 ? `${count} ${count === 1 ? 'reporte activo' : 'reportes activos'} de vecinos` : 'Sin reportes de vecinos');
+  if (p.lastReportAt) {
+    add(`Último reporte: ${new Date(String(p.lastReportAt)).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', dateStyle: 'short', timeStyle: 'short' })}`);
+  }
+  add(`Fuente: ${String(p.sourceLabel ?? 'Reportes ciudadanos')}`, 'live-popup__source');
+  return root;
+}
+
+/** Punto a mitad del largo de una línea (donde va su título). */
+function midpointAlong(coords: [number, number][]): [number, number] {
+  if (coords.length < 2) return coords[0];
+  const seg = coords.slice(1).map((p, i) => Math.hypot((p[0] - coords[i][0]) * 0.83, p[1] - coords[i][1]));
+  let half = seg.reduce((a, b) => a + b, 0) / 2;
+  for (let i = 0; i < seg.length; i++) {
+    if (half <= seg[i]) {
+      const t = seg[i] ? half / seg[i] : 0;
+      return [coords[i][0] + t * (coords[i + 1][0] - coords[i][0]), coords[i][1] + t * (coords[i + 1][1] - coords[i][1])];
+    }
+    half -= seg[i];
+  }
+  return coords[coords.length - 1];
+}
+
+const SIGNAL_LABEL: Record<string, string> = {
+  FUNCIONANDO: 'Semáforo funcionando', APAGADO: 'Semáforo apagado', TILDADO: 'Semáforo tildado',
+  IRREGULAR: 'Semáforo con fallas', SIN_INFORMACION: 'Semáforo',
+};
+
+// Tipografía del estilo del mapa (CARTO Voyager).
+const LABEL_FONT = ['Montserrat SemiBold', 'Open Sans Bold', 'Noto Sans Regular'];
+
 function createUserLocationElement() {
   const el = document.createElement('div');
   el.className = 'user-location';
@@ -79,6 +122,7 @@ export default function TrafficMap({
   const emptyCollection: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
   const corridorsDataRef = useRef<GeoJSON.FeatureCollection>(emptyCollection);
   const liveDataRef = useRef<GeoJSON.FeatureCollection>(emptyCollection);
+  const labelsDataRef = useRef<GeoJSON.FeatureCollection>(emptyCollection);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -115,11 +159,42 @@ export default function TrafficMap({
         new maplibregl.Popup({ closeButton: true, maxWidth: '260px', className: 'live-popup-wrap' })
           .setLngLat(e.lngLat).setDOMContent(livePopupContent(e.features[0].properties ?? {})).addTo(map);
       };
-      for (const layer of ['live-lines', 'live-points']) {
-        map.on('click', layer, showPopup);
+      // Títulos cortos sobre el mapa ("Tránsito lento", "Calle cortada", nombre de la avenida...).
+      // El mapa oculta solo los que se pisan y los va mostrando al acercarse.
+      map.addSource('map-labels', { type: 'geojson', data: labelsDataRef.current });
+      const labelPaint: maplibregl.SymbolLayerSpecification['paint'] = {
+        'text-color': ['get', 'textColor'], 'text-halo-color': '#ffffff', 'text-halo-width': 2, 'text-halo-blur': 0.5,
+      };
+      map.addLayer({ id: 'labels-corridors', type: 'symbol', source: 'map-labels', minzoom: 12.3, filter: ['==', ['get', 'kind'], 'corridor'],
+        layout: { 'text-field': ['get', 'text'], 'text-font': LABEL_FONT, 'text-size': ['interpolate', ['linear'], ['zoom'], 12, 10, 16, 12],
+          'text-max-width': 12, 'text-padding': 6 },
+        paint: labelPaint });
+      map.addLayer({ id: 'labels-signals', type: 'symbol', source: 'map-labels', minzoom: 14.5, filter: ['==', ['get', 'kind'], 'signal'],
+        layout: { 'text-field': ['get', 'text'], 'text-font': LABEL_FONT, 'text-size': 10, 'text-anchor': 'top', 'text-offset': [0, 1.2], 'text-padding': 2 },
+        paint: labelPaint });
+      map.addLayer({ id: 'labels-live', type: 'symbol', source: 'map-labels', minzoom: 12, filter: ['==', ['get', 'kind'], 'live'],
+        layout: { 'text-field': ['get', 'text'], 'text-font': LABEL_FONT, 'text-size': ['interpolate', ['linear'], ['zoom'], 12, 10, 16, 12],
+          'text-anchor': 'bottom', 'text-offset': [0, -0.6], 'text-padding': 3 },
+        paint: labelPaint });
+      map.addLayer({ id: 'labels-incidents', type: 'symbol', source: 'map-labels', minzoom: 12, filter: ['==', ['get', 'kind'], 'incident'],
+        layout: { 'text-field': ['get', 'text'], 'text-font': LABEL_FONT, 'text-size': 11, 'text-anchor': 'top', 'text-offset': [0, 1.3], 'text-padding': 2 },
+        paint: labelPaint });
+
+      const pointer = (layer: string) => {
         map.on('mouseenter', layer, () => { if (!pickModeRef.current) map.getCanvas().style.cursor = 'pointer'; });
         map.on('mouseleave', layer, () => { if (!pickModeRef.current) map.getCanvas().style.cursor = ''; });
-      }
+      };
+      // Al tocar la línea o su título se abre el cartel con todos los detalles.
+      for (const layer of ['live-lines', 'live-points', 'labels-live']) { map.on('click', layer, showPopup); pointer(layer); }
+
+      const showCorridorPopup = (e: maplibregl.MapLayerMouseEvent) => {
+        if (pickModeRef.current || !e.features?.length) return;
+        // Si en ese punto hay un incidente en vivo, manda ese cartel (es más específico).
+        if (map.queryRenderedFeatures(e.point, { layers: ['live-lines', 'live-points', 'labels-live'] }).length) return;
+        new maplibregl.Popup({ closeButton: true, maxWidth: '260px', className: 'live-popup-wrap' })
+          .setLngLat(e.lngLat).setDOMContent(corridorPopupContent(e.features[0].properties ?? {})).addTo(map);
+      };
+      for (const layer of ['corridors-status', 'labels-corridors']) { map.on('click', layer, showCorridorPopup); pointer(layer); }
     });
     mapRef.current = map;
     return () => { map.remove(); mapRef.current = null; };
@@ -133,7 +208,11 @@ export default function TrafficMap({
       type: 'FeatureCollection',
       features: corridors.map((c) => ({
         type: 'Feature',
-        properties: { code: c.code, name: c.name, status: c.status, isCabaAccess: c.isCabaAccess, color: TRAFFIC_COLOR_MAP[c.status]?.hex ?? '#64748b' },
+        properties: {
+          code: c.code, name: c.name, status: c.status, isCabaAccess: c.isCabaAccess, color: TRAFFIC_COLOR_MAP[c.status]?.hex ?? '#64748b',
+          statusLabel: TRAFFIC_COLOR_MAP[c.status]?.label ?? '', activeIncidentCount: c.activeIncidentCount,
+          lastReportAt: c.lastReportAt, sourceLabel: c.sourceLabel,
+        },
         geometry: { type: 'LineString', coordinates: c.coordinates },
       })),
     };
@@ -154,6 +233,32 @@ export default function TrafficMap({
     };
     (mapRef.current?.getSource('live-traffic') as maplibregl.GeoJSONSource | undefined)?.setData(liveDataRef.current);
   }, [liveIncidents, showLive]);
+
+  // Títulos de cada línea y marca del mapa.
+  useEffect(() => {
+    const point = (coords: [number, number], properties: Record<string, unknown>): GeoJSON.Feature => ({
+      type: 'Feature', properties, geometry: { type: 'Point', coordinates: coords },
+    });
+    const features: GeoJSON.Feature[] = [
+      ...corridors.filter((c) => c.coordinates.length > 1).map((c) => point(midpointAlong(c.coordinates), {
+        kind: 'corridor', text: `${c.name.replace(/\s*\(Acceso CABA\)/, '')}\n${TRAFFIC_COLOR_MAP[c.status]?.label ?? ''}`, textColor: '#334155',
+        name: c.name, statusLabel: TRAFFIC_COLOR_MAP[c.status]?.label ?? '', activeIncidentCount: c.activeIncidentCount,
+        lastReportAt: c.lastReportAt, sourceLabel: c.sourceLabel,
+      })),
+      ...(showLive ? liveIncidents : []).map((inc) => {
+        const coords = inc.geometry.type === 'Point' ? inc.geometry.coordinates : midpointAlong(inc.geometry.coordinates);
+        const color = liveColor(inc);
+        return point(coords, {
+          kind: 'live', text: LIVE_KIND_LABELS[inc.kind], textColor: color === '#eab308' ? '#a16207' : color,
+          title: LIVE_KIND_LABELS[inc.kind], description: inc.description, from: inc.from, to: inc.to, delayMinutes: inc.delayMinutes,
+        });
+      }),
+      ...(showSignals ? signals : []).map((s) => point([s.lng, s.lat], { kind: 'signal', text: SIGNAL_LABEL[s.status] ?? 'Semáforo', textColor: '#334155' })),
+      ...incidents.map((i) => point([i.lng, i.lat], { kind: 'incident', text: INCIDENT_LABELS[i.type] ?? 'Reporte', textColor: '#b91c1c' })),
+    ];
+    labelsDataRef.current = { type: 'FeatureCollection', features };
+    (mapRef.current?.getSource('map-labels') as maplibregl.GeoJSONSource | undefined)?.setData(labelsDataRef.current);
+  }, [corridors, liveIncidents, showLive, signals, showSignals, incidents]);
 
   useEffect(() => {
     const map = mapRef.current;

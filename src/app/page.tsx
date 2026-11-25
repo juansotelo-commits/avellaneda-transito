@@ -262,7 +262,7 @@ export default function HomePage() {
             <p className="text-xs text-slate-600">{'\u00daltimo reporte: '}{selectedSignal.lastReportedAt ? new Date(selectedSignal.lastReportedAt).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' }) : 'Sin informaci\u00f3n reciente'}</p>
             <p className="text-xs text-slate-600">Cantidad de reportes: {selectedSignal.reportCount}</p>
           </div>
-          <button onClick={() => openReportWithGPS(selectedSignal)} className="w-full py-3 rounded-xl bg-amber-500 text-white font-black text-sm">Reportar problema en este sem\u00e1foro</button>
+          <button onClick={() => openReportWithGPS(selectedSignal)} className="w-full py-3 rounded-xl bg-amber-500 text-white font-black text-sm">Reportar problema en este semáforo</button>
         </div>
       )}
       {selectedIncident && (

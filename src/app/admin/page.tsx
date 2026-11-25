@@ -149,7 +149,7 @@ export default function AdminPage() {
             <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => void searchSignalCorner(true)}
               className="shrink-0 px-3 rounded-xl bg-slate-100 text-slate-800 font-black text-xs">{'\u{1F4CD} Buscar esquina'}</button>
           </div>
-          {sigGeoStatus === 'buscando' && <p className="text-xs text-slate-500">Buscando la esquina\u2026</p>}
+          {sigGeoStatus === 'buscando' && <p className="text-xs text-slate-500">Buscando la esquina…</p>}
           {sigGeoStatus === 'sin-resultado' && <p className="text-xs text-amber-700">{'No encontr\u00e9 esa esquina en Avellaneda. Revis\u00e1 el nombre o carg\u00e1 latitud y longitud a mano.'}</p>}
           {sigGeoStatus === 'error' && <p className="text-xs text-amber-700">{'No se pudo consultar el buscador de direcciones. Prob\u00e1 de nuevo o carg\u00e1 la ubicaci\u00f3n a mano.'}</p>}
           {sigMatches.length > 1 && (
