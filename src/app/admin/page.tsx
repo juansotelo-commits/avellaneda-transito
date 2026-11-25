@@ -14,10 +14,19 @@ export default function AdminPage() {
   const [incidents, setIncidents] = useState<IncidentDTO[]>([]);
   const [signals, setSignals] = useState<SignalDTO[]>([]);
   const [stats, setStats] = useState<Record<string, number> | null>(null);
-  const [cutCorridor, setCutCorridor] = useState('av-mitre');
+  // Corte: se busca la dirección y la ubicación se completa sola (antes había un valor fijo,
+  // y un código de avenida inexistente como valor inicial).
+  const [cutCorridor, setCutCorridor] = useState<string>('');
   const [cutDesc, setCutDesc] = useState('');
-  const [cutLat, setCutLat] = useState('-34.6625');
-  const [cutLng, setCutLng] = useState('-58.3678');
+  const [cutAddress, setCutAddress] = useState('');
+  const [cutLat, setCutLat] = useState('');
+  const [cutLng, setCutLng] = useState('');
+  const [cutMatches, setCutMatches] = useState<GeorefMatch[]>([]);
+  const [cutChosen, setCutChosen] = useState<string | null>(null);
+  const [cutGeoStatus, setCutGeoStatus] = useState<'idle' | 'buscando' | 'sin-resultado' | 'error'>('idle');
+  const [cutError, setCutError] = useState<string | null>(null);
+  const [cutSearchedFor, setCutSearchedFor] = useState('');
+  const [cutSaved, setCutSaved] = useState(false);
   const [sigName, setSigName] = useState('');
   // La ubicación arranca vacía: se completa buscando la esquina (antes había un valor fijo
   // y todos los semáforos que no se corregían a mano quedaban apilados en el mismo punto).
@@ -49,11 +58,42 @@ export default function AdminPage() {
     await fetch(`/api/admin/reports/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) }); loadData();
   };
   const deleteReport = async (id: string) => { await fetch(`/api/admin/reports/${id}`, { method: 'DELETE' }); loadData(); };
+  const chooseCutMatch = (m: GeorefMatch) => {
+    setCutLat(String(m.lat)); setCutLng(String(m.lng)); setCutChosen(m.label); setCutError(null);
+    // La avenida del mapa más cercana (si está sobre una); si no, "Otra calle".
+    setCutCorridor(nearestCorridorCode(m.lat, m.lng, 60) ?? '');
+  };
+  const searchCutAddress = async (force = false) => {
+    const text = cutAddress.trim();
+    if (text.length < 4 || (!force && text === cutSearchedFor)) return;
+    setCutSearchedFor(text); setCutGeoStatus('buscando'); setCutMatches([]); setCutChosen(null);
+    try {
+      const found = await findIntersection(text);
+      setCutMatches(found);
+      setCutGeoStatus(found.length ? 'idle' : 'sin-resultado');
+      if (found.length) chooseCutMatch(found[0]);
+    } catch {
+      setCutGeoStatus('error');
+    }
+  };
   const createCut = async (e: React.FormEvent) => {
     e.preventDefault();
-    await fetch('/api/admin/cuts', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ corridorCode: cutCorridor, description: cutDesc, lat: Number(cutLat), lng: Number(cutLng), isAvenue: cutCorridor.startsWith('av-') }) });
-    setCutDesc(''); loadData();
+    setCutError(null); setCutSaved(false);
+    const lat = Number(cutLat), lng = Number(cutLng);
+    if (!cutLat || !cutLng || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+      setCutError('Falta la ubicación: tocá "Buscar" o cargá latitud y longitud.');
+      return;
+    }
+    const res = await fetch('/api/admin/cuts', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ corridorCode: cutCorridor || null, description: cutDesc.trim(), addressLabel: cutChosen ?? (cutAddress.trim() || null), lat, lng }) });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      setCutError(err.error || 'No se pudo publicar el corte.');
+      return;
+    }
+    setCutDesc(''); setCutAddress(''); setCutLat(''); setCutLng(''); setCutMatches([]); setCutChosen(null);
+    setCutSearchedFor(''); setCutGeoStatus('idle'); setCutCorridor(''); setCutSaved(true);
+    loadData();
   };
   const updateSignalStatus = async (id: string, status: string) => {
     await fetch('/api/admin/signals', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, status }) }); loadData();
@@ -130,14 +170,42 @@ export default function AdminPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <form onSubmit={createCut} className="bg-white p-4 rounded-2xl border space-y-3">
           <h2 className="font-black text-slate-900">Cargar corte manual</h2>
-          <select value={cutCorridor} onChange={(e) => setCutCorridor(e.target.value)} className="w-full border rounded-xl p-2.5 text-sm">
-            {AVELLANEDA_CORRIDORS.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
-          </select>
-          <input required placeholder="Motivo / altura del corte (ej: Obra al 1400)" value={cutDesc} onChange={(e) => setCutDesc(e.target.value)} className="w-full border rounded-xl p-2.5 text-sm" />
-          <div className="grid grid-cols-2 gap-2">
-            <input value={cutLat} onChange={(e) => setCutLat(e.target.value)} placeholder="Latitud" className="border rounded-xl p-2 text-sm" />
-            <input value={cutLng} onChange={(e) => setCutLng(e.target.value)} placeholder="Longitud" className="border rounded-xl p-2 text-sm" />
+          <div className="flex gap-2">
+            <input required placeholder={'Dirección o esquina (ej: Mitre 1400 o Mitre y Alsina)'} value={cutAddress}
+              onChange={(e) => { setCutAddress(e.target.value); setCutChosen(null); setCutMatches([]); setCutLat(''); setCutLng(''); setCutGeoStatus('idle'); setCutSearchedFor(''); setCutSaved(false); }}
+              onBlur={() => void searchCutAddress()} className="flex-1 min-w-0 border rounded-xl p-2.5 text-sm" />
+            <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => void searchCutAddress(true)}
+              className="shrink-0 px-3 rounded-xl bg-slate-100 text-slate-800 font-black text-xs">{'\u{1F4CD} Buscar'}</button>
           </div>
+          {cutGeoStatus === 'buscando' && <p className="text-xs text-slate-500">{'Buscando la dirección…'}</p>}
+          {cutGeoStatus === 'sin-resultado' && <p className="text-xs text-amber-700">{'No encontré esa dirección en Avellaneda. Revisá el texto o cargá latitud y longitud a mano.'}</p>}
+          {cutGeoStatus === 'error' && <p className="text-xs text-amber-700">{'No se pudo consultar el buscador de direcciones. Probá de nuevo o cargá la ubicación a mano.'}</p>}
+          {cutMatches.length > 1 && (
+            <div className="space-y-1">
+              <p className="text-[11px] font-bold text-slate-500">{'Encontré varias opciones, elegí la correcta:'}</p>
+              {cutMatches.map((m) => (
+                <button type="button" key={`${m.lat},${m.lng}`} onClick={() => chooseCutMatch(m)}
+                  className={`w-full text-left text-xs p-2 rounded-lg border ${cutChosen === m.label && cutLat === String(m.lat) ? 'border-red-600 bg-red-50 font-bold' : 'border-slate-200'}`}>
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {cutChosen && <p className="text-xs text-emerald-700 font-semibold">{`✓ Ubicación: ${cutChosen}`}</p>}
+          <label className="block text-[11px] font-bold text-slate-500">
+            {'Avenida (se elige sola según la dirección)'}
+            <select value={cutCorridor} onChange={(e) => setCutCorridor(e.target.value)} className="mt-1 w-full border rounded-xl p-2.5 text-sm font-normal text-slate-900">
+              <option value="">{'Otra calle (no es una avenida principal)'}</option>
+              {AVELLANEDA_CORRIDORS.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
+            </select>
+          </label>
+          <input required placeholder="Motivo (ej: Obra de AySA, acto, choque)" value={cutDesc} onChange={(e) => setCutDesc(e.target.value)} className="w-full border rounded-xl p-2.5 text-sm" />
+          <div className="grid grid-cols-2 gap-2">
+            <input value={cutLat} onChange={(e) => { setCutLat(e.target.value); setCutChosen(null); }} placeholder="Latitud" inputMode="decimal" className="border rounded-xl p-2 text-sm" />
+            <input value={cutLng} onChange={(e) => { setCutLng(e.target.value); setCutChosen(null); }} placeholder="Longitud" inputMode="decimal" className="border rounded-xl p-2 text-sm" />
+          </div>
+          {cutError && <p className="text-xs font-bold text-red-600">{cutError}</p>}
+          {cutSaved && <p className="text-xs font-bold text-emerald-700">{'✓ Corte publicado.'}</p>}
           <button className="w-full py-2.5 rounded-xl bg-red-600 text-white font-black text-sm">Publicar corte verificado</button>
         </form>
         <form onSubmit={createSignal} className="bg-white p-4 rounded-2xl border space-y-3">
