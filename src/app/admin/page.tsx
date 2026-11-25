@@ -8,7 +8,7 @@ import { findIntersection, nearestCorridorCode, type GeorefMatch } from '@/lib/g
 
 export default function AdminPage() {
   const [authed, setAuthed] = useState(false);
-  const [email, setEmail] = useState('admin@avellaneda.local');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
   const [incidents, setIncidents] = useState<IncidentDTO[]>([]);
@@ -51,7 +51,11 @@ export default function AdminPage() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault(); setLoginError(null);
     const res = await fetch('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
-    if (!res.ok) { setLoginError('Usuario o contrase\u00f1a incorrectos'); return; }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      setLoginError(res.status === 503 && err.error ? err.error : 'Usuario o contrase\u00f1a incorrectos');
+      return;
+    }
     loadData();
   };
   const updateReport = async (id: string, status: string) => {
