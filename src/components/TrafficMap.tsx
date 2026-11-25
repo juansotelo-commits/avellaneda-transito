@@ -157,9 +157,9 @@ export default function TrafficMap({
       // Zonas invisibles más anchas que las líneas, para que sea fácil tocarlas con el dedo.
       // (Opacidad 0.01 y no 0: con 0 la librería las ignora al consultar qué se tocó.)
       map.addLayer({ id: 'corridors-hit', type: 'line', source: 'avellaneda-corridors', layout: { 'line-cap': 'round' },
-        paint: { 'line-color': '#000000', 'line-opacity': 0.01, 'line-width': 22 } });
+        paint: { 'line-color': '#000000', 'line-opacity': 0.01, 'line-width': 30 } });
       map.addLayer({ id: 'live-hit', type: 'line', source: 'live-traffic', filter: ['==', ['geometry-type'], 'LineString'], layout: { 'line-cap': 'round' },
-        paint: { 'line-color': '#000000', 'line-opacity': 0.01, 'line-width': 22 } });
+        paint: { 'line-color': '#000000', 'line-opacity': 0.01, 'line-width': 30 } });
 
       const showPopup = (e: maplibregl.MapLayerMouseEvent) => {
         if (pickModeRef.current || !e.features?.length) return;
