@@ -18,6 +18,10 @@ interface OverviewResponse {
   corridors: CorridorDTO[]; cabaAccesses: CorridorDTO[]; signals: SignalDTO[]; incidents: IncidentDTO[];
 }
 
+const SIGNAL_STATUS_TEXT: Record<string, string> = {
+  FUNCIONANDO: 'Funcionando', APAGADO: 'Apagado', TILDADO: 'Tildado', IRREGULAR: 'Funciona mal', SIN_INFORMACION: 'Sin reportes',
+};
+
 export default function HomePage() {
   const [data, setData] = useState<OverviewResponse | null>(null);
   const [showSignals, setShowSignals] = useState(true);
@@ -258,7 +262,7 @@ export default function HomePage() {
             <button onClick={() => setSelectedSignal(null)} className="font-bold text-slate-500">{'\u2715'}</button>
           </div>
           <div className="text-sm space-y-1">
-            <p>Estado: <span className="font-black">{selectedSignal.status.replace('_', ' ')}</span></p>
+            <p>Estado: <span className="font-black">{SIGNAL_STATUS_TEXT[selectedSignal.status] ?? selectedSignal.status}</span></p>
             <p className="text-xs text-slate-600">{'\u00daltimo reporte: '}{selectedSignal.lastReportedAt ? new Date(selectedSignal.lastReportedAt).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' }) : 'Sin informaci\u00f3n reciente'}</p>
             <p className="text-xs text-slate-600">Cantidad de reportes: {selectedSignal.reportCount}</p>
           </div>
