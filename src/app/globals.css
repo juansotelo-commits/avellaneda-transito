@@ -53,6 +53,9 @@
   .user-location__pulse { animation: none; transform: scale(2); opacity: 0.4; }
 }
 
+/* Los carteles del mapa siempre por encima de los íconos (semáforos, reportes). */
+.maplibregl-popup { z-index: 10; }
+
 /* Popup de incidentes en vivo */
 .live-popup-wrap .maplibregl-popup-content {
   padding: 10px 28px 10px 12px;

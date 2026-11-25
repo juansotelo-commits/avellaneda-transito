@@ -154,6 +154,12 @@ export default function TrafficMap({
       map.addLayer({ id: 'live-points', type: 'circle', source: 'live-traffic', filter: ['==', ['geometry-type'], 'Point'],
         paint: { 'circle-color': ['get', 'color'], 'circle-radius': 7, 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 } });
 
+      // Zonas invisibles más anchas que las líneas, para que sea fácil tocarlas con el dedo.
+      map.addLayer({ id: 'corridors-hit', type: 'line', source: 'avellaneda-corridors', layout: { 'line-cap': 'round' },
+        paint: { 'line-color': '#000000', 'line-opacity': 0, 'line-width': 22 } });
+      map.addLayer({ id: 'live-hit', type: 'line', source: 'live-traffic', filter: ['==', ['geometry-type'], 'LineString'], layout: { 'line-cap': 'round' },
+        paint: { 'line-color': '#000000', 'line-opacity': 0, 'line-width': 22 } });
+
       const showPopup = (e: maplibregl.MapLayerMouseEvent) => {
         if (pickModeRef.current || !e.features?.length) return;
         new maplibregl.Popup({ closeButton: true, maxWidth: '260px', className: 'live-popup-wrap' })
@@ -185,16 +191,21 @@ export default function TrafficMap({
         map.on('mouseleave', layer, () => { if (!pickModeRef.current) map.getCanvas().style.cursor = ''; });
       };
       // Al tocar la línea o su título se abre el cartel con todos los detalles.
-      for (const layer of ['live-lines', 'live-points', 'labels-live']) { map.on('click', layer, showPopup); pointer(layer); }
-
-      const showCorridorPopup = (e: maplibregl.MapLayerMouseEvent) => {
-        if (pickModeRef.current || !e.features?.length) return;
-        // Si en ese punto hay un incidente en vivo, manda ese cartel (es más específico).
-        if (map.queryRenderedFeatures(e.point, { layers: ['live-lines', 'live-points', 'labels-live'] }).length) return;
-        new maplibregl.Popup({ closeButton: true, maxWidth: '260px', className: 'live-popup-wrap' })
-          .setLngLat(e.lngLat).setDOMContent(corridorPopupContent(e.features[0].properties ?? {})).addTo(map);
-      };
-      for (const layer of ['corridors-status', 'labels-corridors']) { map.on('click', layer, showCorridorPopup); pointer(layer); }
+      // Un solo manejador de toques: decide qué cartel abrir según lo que haya bajo el dedo.
+      // Prioridad: incidente en vivo (más específico) y después la avenida. Así no se abren dos a la vez.
+      const LIVE_LAYERS = ['live-hit', 'live-points', 'labels-live'];
+      const CORRIDOR_LAYERS = ['corridors-hit', 'labels-corridors'];
+      map.on('click', (e) => {
+        if (pickModeRef.current) return;
+        const live = map.queryRenderedFeatures(e.point, { layers: LIVE_LAYERS });
+        if (live.length) { showPopup({ ...e, features: live } as maplibregl.MapLayerMouseEvent); return; }
+        const corridor = map.queryRenderedFeatures(e.point, { layers: CORRIDOR_LAYERS });
+        if (corridor.length) {
+          new maplibregl.Popup({ closeButton: true, maxWidth: '260px', className: 'live-popup-wrap' })
+            .setLngLat(e.lngLat).setDOMContent(corridorPopupContent(corridor[0].properties ?? {})).addTo(map);
+        }
+      });
+      for (const layer of [...LIVE_LAYERS, ...CORRIDOR_LAYERS]) pointer(layer);
     });
     mapRef.current = map;
     return () => { map.remove(); mapRef.current = null; };
