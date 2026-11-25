@@ -210,6 +210,9 @@ export interface SignalPositionFix {
   lng: number;
 }
 
+// Dos semáforos a esta distancia o menos se consideran la misma esquina (el Admin avisa antes de duplicar).
+export const SAME_CORNER_METERS = 40;
+
 export const ADMIN_SIGNAL_FIXES: SignalPositionFix[] = [
   { currentName: 'Avenida Belgrani y España ', intersection: 'Avenida Belgrano y España', corridorCode: 'AV_BELGRANO', lat: -34.66138, lng: -58.36837 },
   { currentName: 'Avenida Belgrano y Mariano Acosta', intersection: 'Avenida Belgrano y Mariano Acosta', corridorCode: 'AV_BELGRANO', lat: -34.66019, lng: -58.36944 },

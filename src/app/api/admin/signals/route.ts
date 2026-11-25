@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAdminSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { DEFAULT_SIGNAL_POSITION } from '@/lib/avellaneda-network';
+import { DEFAULT_SIGNAL_POSITION, SAME_CORNER_METERS } from '@/lib/avellaneda-network';
 
 export async function POST(req: NextRequest) {
   const session = await verifyAdminSession();
   if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
 
-  const { intersection, corridorCode, lat, lng, status } = await req.json();
+  const { intersection, corridorCode, lat, lng, status, force } = await req.json();
   const name = typeof intersection === 'string' ? intersection.trim() : '';
   const latN = Number(lat), lngN = Number(lng);
   if (!name) return NextResponse.json({ error: 'Falta el nombre de la intersección' }, { status: 400 });
@@ -21,6 +21,22 @@ export async function POST(req: NextRequest) {
   }
   const muni = await prisma.municipality.findUnique({ where: { slug: 'avellaneda' } });
   if (!muni) return NextResponse.json({ error: 'Sin municipio' }, { status: 500 });
+
+  // Si ya hay un semáforo en esa esquina, no se duplica: se avisa, salvo que se confirme que es otro.
+  if (force !== true) {
+    const box = 0.0006; // ~65 m
+    const close = await prisma.trafficSignal.findMany({
+      where: { municipalityId: muni.id, lat: { gte: latN - box, lte: latN + box }, lng: { gte: lngN - box, lte: lngN + box } },
+      select: { id: true, intersection: true, status: true, lat: true, lng: true },
+    });
+    const nearby = close
+      .map((s) => ({ ...s, meters: Math.round(Math.hypot((s.lat - latN) * 111320, (s.lng - lngN) * 111320 * Math.cos((latN * Math.PI) / 180))) }))
+      .filter((s) => s.meters <= SAME_CORNER_METERS)
+      .sort((a, b) => a.meters - b.meters);
+    if (nearby.length) {
+      return NextResponse.json({ error: `Ya hay un semáforo en esa esquina: ${nearby[0].intersection}`, nearby }, { status: 409 });
+    }
+  }
 
   const signal = await prisma.trafficSignal.create({
     data: {

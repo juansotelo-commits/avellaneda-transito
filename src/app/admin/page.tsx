@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { INCIDENT_LABELS, type IncidentDTO, type SignalDTO } from '@/types/traffic';
-import { AVELLANEDA_CORRIDORS } from '@/lib/avellaneda-network';
+import { AVELLANEDA_CORRIDORS, SAME_CORNER_METERS } from '@/lib/avellaneda-network';
 import { findIntersection, nearestCorridorCode, type GeorefMatch } from '@/lib/georef';
 
 export default function AdminPage() {
@@ -40,6 +40,7 @@ export default function AdminPage() {
   // Buscador de la lista de semáforos (son cientos desde que se sumaron los de OpenStreetMap).
   const [sigFilter, setSigFilter] = useState('');
   const [sigOnlyReported, setSigOnlyReported] = useState(false);
+  const [sigSaved, setSigSaved] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     const [ovRes, stRes] = await Promise.all([fetch('/api/overview'), fetch('/api/admin/cuts')]);
@@ -130,22 +131,40 @@ export default function AdminPage() {
       setSigGeoStatus('error');
     }
   };
+  const resetSignalForm = () => {
+    setSigName(''); setSigLat(''); setSigLng(''); setSigMatches([]); setSigChosen(null); setSigSearchedFor(''); setSigGeoStatus('idle');
+  };
+  // Semáforos ya cargados en la misma esquina que la ubicación elegida.
+  const sigLatN = Number(sigLat), sigLngN = Number(sigLng);
+  const sigNearby = sigLat && sigLng && Number.isFinite(sigLatN) && Number.isFinite(sigLngN)
+    ? signals
+      .map((s) => ({ ...s, meters: Math.round(Math.hypot((s.lat - sigLatN) * 111320, (s.lng - sigLngN) * 111320 * Math.cos((sigLatN * Math.PI) / 180))) }))
+      .filter((s) => s.meters <= SAME_CORNER_METERS)
+      .sort((a, b) => a.meters - b.meters)
+    : [];
+  const markExistingWorking = async (id: string, name: string) => {
+    await updateSignalStatus(id, 'FUNCIONANDO');
+    resetSignalForm(); setSigError(null); setSigSaved(`\u2713 Se marc\u00f3 como funcionando: ${name}`);
+  };
   const createSignal = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSigError(null);
+    setSigError(null); setSigSaved(null);
     const lat = Number(sigLat), lng = Number(sigLng);
     if (!sigLat || !sigLng || !Number.isFinite(lat) || !Number.isFinite(lng)) {
       setSigError('Falta la ubicación: tocá "Buscar esquina" o cargá latitud y longitud.');
       return;
     }
     const res = await fetch('/api/admin/signals', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ intersection: sigName.trim(), lat, lng, corridorCode: nearestCorridorCode(lat, lng), status: 'FUNCIONANDO' }) });
+      // Si ya se mostró el aviso de esquina repetida y se tocó "agregar igual", se confirma que es otro.
+      body: JSON.stringify({ intersection: sigName.trim(), lat, lng, corridorCode: nearestCorridorCode(lat, lng), status: 'FUNCIONANDO', force: sigNearby.length > 0 }) });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       setSigError(err.error || 'No se pudo guardar el semáforo.');
+      if (res.status === 409) loadData(); // la lista estaba desactualizada: así aparece el aviso con opciones
       return;
     }
-    setSigName(''); setSigLat(''); setSigLng(''); setSigMatches([]); setSigChosen(null); setSigSearchedFor(''); setSigGeoStatus('idle');
+    setSigSaved(`\u2713 Sem\u00e1foro agregado: ${sigName.trim()}`);
+    resetSignalForm();
     loadData();
   };
 
@@ -228,7 +247,7 @@ export default function AdminPage() {
           <h2 className="font-black text-slate-900">{'Cargar sem\u00e1foro manualmente'}</h2>
           <div className="flex gap-2">
             <input required placeholder={'Intersecci\u00f3n (ej: Av. Belgrano y G\u00fcemes)'} value={sigName}
-              onChange={(e) => { setSigName(e.target.value); setSigChosen(null); setSigMatches([]); setSigLat(''); setSigLng(''); setSigGeoStatus('idle'); setSigSearchedFor(''); }}
+              onChange={(e) => { setSigName(e.target.value); setSigSaved(null); setSigChosen(null); setSigMatches([]); setSigLat(''); setSigLng(''); setSigGeoStatus('idle'); setSigSearchedFor(''); }}
               onBlur={() => void searchSignalCorner()} className="flex-1 min-w-0 border rounded-xl p-2.5 text-sm" />
             <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => void searchSignalCorner(true)}
               className="shrink-0 px-3 rounded-xl bg-slate-100 text-slate-800 font-black text-xs">{'\u{1F4CD} Buscar esquina'}</button>
@@ -252,8 +271,29 @@ export default function AdminPage() {
             <input value={sigLat} onChange={(e) => { setSigLat(e.target.value); setSigChosen(null); }} placeholder="Latitud" inputMode="decimal" className="border rounded-xl p-2 text-sm" />
             <input value={sigLng} onChange={(e) => { setSigLng(e.target.value); setSigChosen(null); }} placeholder="Longitud" inputMode="decimal" className="border rounded-xl p-2 text-sm" />
           </div>
+          {sigNearby.length > 0 && (
+            <div className="p-3 rounded-xl border border-amber-300 bg-amber-50 space-y-2">
+              <p className="text-xs font-black text-amber-900">{'Esta esquina ya tiene sem\u00e1foro cargado:'}</p>
+              {sigNearby.slice(0, 3).map((s) => (
+                <div key={s.id} className="flex items-center justify-between gap-2">
+                  <p className="text-xs text-slate-800 min-w-0">
+                    <span className="font-bold">{s.intersection}</span>
+                    <span className="text-slate-500">{` \u00b7 a ${s.meters} m \u00b7 ${s.status === 'SIN_INFORMACION' ? 'sin reportes' : s.status.toLowerCase()}`}</span>
+                  </p>
+                  {s.status !== 'FUNCIONANDO' && (
+                    <button type="button" onClick={() => void markExistingWorking(s.id, s.intersection)}
+                      className="shrink-0 px-2 py-1 rounded-lg bg-emerald-600 text-white text-[11px] font-black">{'Marcar funcionando'}</button>
+                  )}
+                </div>
+              ))}
+              <p className="text-[11px] text-amber-900">{'No hace falta cargarlo de nuevo: cambi\u00e1 su estado ac\u00e1 o en la lista de abajo. Si de verdad es otro sem\u00e1foro, pod\u00e9s agregarlo igual.'}</p>
+            </div>
+          )}
           {sigError && <p className="text-xs font-bold text-red-600">{sigError}</p>}
-          <button className="w-full py-2.5 rounded-xl bg-blue-600 text-white font-black text-sm">{'Agregar intersecci\u00f3n semaforizada'}</button>
+          {sigSaved && <p className="text-xs font-bold text-emerald-700">{sigSaved}</p>}
+          <button className={`w-full py-2.5 rounded-xl font-black text-sm ${sigNearby.length ? 'bg-white text-slate-700 border border-slate-300' : 'bg-blue-600 text-white'}`}>
+            {sigNearby.length ? 'Es otro sem\u00e1foro: agregarlo igual' : 'Agregar intersecci\u00f3n semaforizada'}
+          </button>
         </form>
       </div>
       <section className="bg-white p-4 rounded-2xl border space-y-3">
