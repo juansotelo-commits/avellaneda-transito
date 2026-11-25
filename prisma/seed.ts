@@ -4,6 +4,7 @@ import {
 } from '../src/lib/avellaneda-network';
 import { OSM_SIGNALS } from '../src/lib/osm-signals';
 import { SIGNAL_MERGES, SIGNAL_MOVES } from '../src/lib/signal-cleanup';
+import { OSM_PARKING } from '../src/lib/osm-parking';
 
 const prisma = new PrismaClient();
 
@@ -142,6 +143,16 @@ async function main() {
     });
   }
   console.log(`Semáforos de OpenStreetMap agregados: ${toCreate.length} (de ${OSM_SIGNALS.length}).`);
+  // Tramos con prohibido estacionar de OpenStreetMap: se agregan una sola vez cada uno.
+  // Si se quitan desde Admin quedan ocultos (no se borran), así no vuelven a aparecer.
+  const parkingResult = await prisma.parkingRestriction.createMany({
+    data: OSM_PARKING.map((p) => ({
+      municipalityId: avellaneda.id, street: p.street, notes: p.notes, schedule: p.schedule,
+      coordinatesJson: JSON.stringify(p.coordinates), sourceType: 'OSM', externalApiId: `osm:${p.osmId}`,
+    })),
+    skipDuplicates: true,
+  });
+  console.log(`Tramos de prohibido estacionar de OpenStreetMap agregados: ${parkingResult.count}`);
   console.log('Seed de Avellaneda Tr\u00e1nsito completado.');
 }
 

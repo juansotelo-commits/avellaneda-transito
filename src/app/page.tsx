@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import TrafficMap from '@/components/TrafficMap';
+import type { ParkingDTO } from '@/lib/parking';
 import ReportModal from '@/components/ReportModal';
 import CabaRouteModal from '@/components/CabaRouteModal';
 import AddressSearch, { type SearchPlace } from '@/components/AddressSearch';
@@ -38,6 +39,8 @@ export default function HomePage() {
   const [searchPlace, setSearchPlace] = useState<SearchPlace | null>(null);
   const [live, setLive] = useState<LiveTrafficResponse | null>(null);
   const [showLive, setShowLive] = useState(true);
+  const [parking, setParking] = useState<ParkingDTO[]>([]);
+  const [showParking, setShowParking] = useState(true);
   const [showLocationPrompt, setShowLocationPrompt] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   const watchIdRef = useRef<number | null>(null);
@@ -117,6 +120,20 @@ export default function HomePage() {
     return () => { stopped = true; clearInterval(timer); };
   }, []);
 
+  // Tramos con prohibido estacionar: cambian poco, se actualizan cada 10 minutos.
+  useEffect(() => {
+    let stopped = false;
+    const loadParking = async () => {
+      try {
+        const res = await fetch('/api/parking');
+        if (res.ok && !stopped) setParking((await res.json()).parking ?? []);
+      } catch { /* sin conexión: se reintenta en el próximo ciclo */ }
+    };
+    loadParking();
+    const timer = setInterval(loadParking, 600000);
+    return () => { stopped = true; clearInterval(timer); };
+  }, []);
+
   const liveIncidents = live?.enabled ? live.incidents : [];
   const [showLegend, setShowLegend] = useState(false);
 
@@ -156,9 +173,10 @@ export default function HomePage() {
         onPickLocation={(coords) => setPickedCoords(coords)} focusCoords={focusCoords}
         userLocation={userLocation} searchPlace={searchPlace}
         liveIncidents={liveIncidents} showLive={showLive}
+        parking={parking} showParking={showParking}
       />
       {!selectedSignal && !selectedIncident && (
-        <MapLegend open={showLegend} onToggle={() => setShowLegend((v) => !v)} showLive={!!live?.enabled} />
+        <MapLegend open={showLegend} onToggle={() => setShowLegend((v) => !v)} showLive={!!live?.enabled} showParking={showParking && parking.length > 0} />
       )}
       {userLocation && !selectedSignal && !selectedIncident && (
         <button onClick={() => setFocusCoords({ ...userLocation })} aria-label={'Centrar el mapa en mi ubicación'}
@@ -211,6 +229,12 @@ export default function HomePage() {
           <button onClick={() => setShowAccessDrawer((v) => !v)} className="px-3 py-2 rounded-xl text-xs font-black shadow-md bg-white text-slate-800 border border-slate-200">
             {`\u{1F309} Accesos a CABA (${data?.cabaAccesses.length ?? 0})`}
           </button>
+          {parking.length > 0 && (
+            <button onClick={() => setShowParking((v) => !v)} aria-pressed={showParking}
+              className={`px-3 py-2 rounded-xl text-xs font-black shadow-md border ${showParking ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-800 border-slate-200'}`}>
+              {`\u{1F6AB} Estacionar ${showParking ? 'ON' : 'OFF'}`}
+            </button>
+          )}
           {live?.enabled && (
             <button onClick={() => setShowLive((v) => !v)} aria-pressed={showLive}
               className={`px-3 py-2 rounded-xl text-xs font-black shadow-md border ${showLive ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-800 border-slate-200'}`}>

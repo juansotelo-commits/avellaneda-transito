@@ -19,6 +19,7 @@ model Municipality {
   corridors RoadCorridor[]
   signals   TrafficSignal[]
   incidents IncidentReport[]
+  parking   ParkingRestriction[]
 }
 
 model User {
@@ -118,4 +119,23 @@ model StatusHistory {
   reason         String?
   sourceType     String   @default("SYSTEM")
   createdAt      DateTime @default(now())
+}
+
+// Tramos de calle donde está prohibido estacionar (cargados desde Admin o traídos de OpenStreetMap).
+model ParkingRestriction {
+  id              String   @id @default(cuid())
+  municipalityId  String
+  municipality    Municipality @relation(fields: [municipalityId], references: [id])
+  street          String
+  fromCorner      String?
+  toCorner        String?
+  schedule        String?
+  notes           String?
+  coordinatesJson String
+  sourceType      String   @default("ADMIN")
+  externalApiId   String?  @unique
+  // Los de OpenStreetMap no se borran al quitarlos: se ocultan, para que no vuelvan en la próxima carga.
+  hidden          Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }

@@ -6,6 +6,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 if (typeof window !== 'undefined' && (maplibregl as any).setWorkerUrl) { (maplibregl as any).setWorkerUrl('/maplibre-gl-worker.mjs'); }
 import { INCIDENT_LABELS, LIVE_KIND_LABELS, TRAFFIC_COLOR_MAP, type CorridorDTO, type IncidentDTO, type LiveIncidentDTO, type SignalDTO } from '@/types/traffic';
 import { AVELLANEDA_CENTER } from '@/lib/avellaneda-network';
+import { PARKING_COLOR, type ParkingDTO } from '@/lib/parking';
 
 interface TrafficMapProps {
   corridors: CorridorDTO[]; signals: SignalDTO[]; incidents: IncidentDTO[];
@@ -14,6 +15,7 @@ interface TrafficMapProps {
   onPickLocation: (coords: { lat: number; lng: number }) => void; focusCoords?: { lat: number; lng: number } | null;
   userLocation?: { lat: number; lng: number } | null;
   searchPlace?: { lat: number; lng: number; label: string } | null;
+  parking?: ParkingDTO[]; showParking?: boolean;
   liveIncidents?: LiveIncidentDTO[]; showLive?: boolean;
 }
 
@@ -69,6 +71,23 @@ function corridorPopupContent(p: Record<string, unknown>) {
   return root;
 }
 
+function parkingPopupContent(p: Record<string, unknown>) {
+  const root = document.createElement('div');
+  root.className = 'live-popup';
+  const add = (text: string, className?: string) => {
+    const el = document.createElement('p');
+    if (className) el.className = className;
+    el.textContent = text;
+    root.appendChild(el);
+  };
+  add('Prohibido estacionar', 'live-popup__title');
+  add(p.fromCorner && p.toCorner ? `${p.street} entre ${p.fromCorner} y ${p.toCorner}` : String(p.street ?? ''));
+  add(p.schedule ? `Horario: ${p.schedule}` : 'Horario: todo el día');
+  if (p.notes) add(String(p.notes));
+  add(p.sourceType === 'OSM' ? 'Fuente: OpenStreetMap' : 'Fuente: Municipio (carga manual)', 'live-popup__source');
+  return root;
+}
+
 /** Punto a mitad del largo de una línea (donde va su título). */
 function midpointAlong(coords: [number, number][]): [number, number] {
   if (coords.length < 2) return coords[0];
@@ -109,7 +128,7 @@ const SIGNAL_COLOR: Record<string, string> = {
 export default function TrafficMap({
   corridors, signals, incidents, showSignals, pickLocationMode, pickedCoords,
   onSelectSignal, onSelectIncident, onPickLocation, focusCoords, userLocation, searchPlace,
-  liveIncidents = [], showLive = true,
+  liveIncidents = [], showLive = true, parking = [], showParking = true,
 }: TrafficMapProps) {
   const pickModeRef = useRef(pickLocationMode);
   useEffect(() => { pickModeRef.current = pickLocationMode; }, [pickLocationMode]);
@@ -124,6 +143,7 @@ export default function TrafficMap({
   const liveDataRef = useRef<GeoJSON.FeatureCollection>(emptyCollection);
   const labelsDataRef = useRef<GeoJSON.FeatureCollection>(emptyCollection);
   const signalsDataRef = useRef<GeoJSON.FeatureCollection>(emptyCollection);
+  const parkingDataRef = useRef<GeoJSON.FeatureCollection>(emptyCollection);
   // El manejador de toques se crea una sola vez: lee los semáforos y el callback desde refs.
   const signalsByIdRef = useRef<Map<string, SignalDTO>>(new Map());
   const onSelectSignalRef = useRef(onSelectSignal);
@@ -143,6 +163,13 @@ export default function TrafficMap({
       map.addLayer({ id: 'corridors-casing', type: 'line', source: 'avellaneda-corridors', paint: { 'line-color': '#ffffff', 'line-width': 7, 'line-opacity': 0.8 } });
       map.addLayer({ id: 'corridors-status', type: 'line', source: 'avellaneda-corridors', layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: { 'line-color': ['get', 'color'], 'line-width': ['case', ['==', ['get', 'isCabaAccess'], true], 5.5, 4], 'line-opacity': 0.92 } });
+
+      // Prohibido estacionar: línea punteada, visible desde zoom 13.5 (de lejos taparía las avenidas).
+      map.addSource('parking', { type: 'geojson', data: parkingDataRef.current });
+      map.addLayer({ id: 'parking-casing', type: 'line', source: 'parking', minzoom: 13.5, layout: { 'line-cap': 'butt' },
+        paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 5, 17, 9], 'line-opacity': 0.85 } });
+      map.addLayer({ id: 'parking-lines', type: 'line', source: 'parking', minzoom: 13.5, layout: { 'line-cap': 'butt' },
+        paint: { 'line-color': PARKING_COLOR, 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 3, 17, 6], 'line-dasharray': [2, 1.2] } });
 
       // Incidentes en vivo (TomTom)
       map.addSource('live-traffic', {
@@ -177,6 +204,8 @@ export default function TrafficMap({
       // (Opacidad 0.01 y no 0: con 0 la librería las ignora al consultar qué se tocó.)
       map.addLayer({ id: 'corridors-hit', type: 'line', source: 'avellaneda-corridors', layout: { 'line-cap': 'round' },
         paint: { 'line-color': '#000000', 'line-opacity': 0.01, 'line-width': 30 } });
+      map.addLayer({ id: 'parking-hit', type: 'line', source: 'parking', minzoom: 13.5, layout: { 'line-cap': 'round' },
+        paint: { 'line-color': '#000000', 'line-opacity': 0.01, 'line-width': 24 } });
       map.addLayer({ id: 'live-hit', type: 'line', source: 'live-traffic', filter: ['==', ['geometry-type'], 'LineString'], layout: { 'line-cap': 'round' },
         paint: { 'line-color': '#000000', 'line-opacity': 0.01, 'line-width': 30 } });
 
@@ -207,6 +236,11 @@ export default function TrafficMap({
         layout: { 'text-field': ['get', 'text'], 'text-font': LABEL_FONT, 'text-size': ['interpolate', ['linear'], ['zoom'], 12, 10, 16, 12],
           'text-anchor': 'bottom', 'text-offset': [0, -0.6], 'text-padding': 3 },
         paint: labelPaint });
+      // Título a lo largo de la línea, recién de cerca.
+      map.addLayer({ id: 'labels-parking', type: 'symbol', source: 'parking', minzoom: 15.5,
+        layout: { 'symbol-placement': 'line', 'text-field': 'Prohibido estacionar', 'text-font': LABEL_FONT, 'text-size': 10,
+          'text-offset': [0, -0.9], 'symbol-spacing': 250, 'text-padding': 4 },
+        paint: { 'text-color': PARKING_COLOR, 'text-halo-color': '#ffffff', 'text-halo-width': 2 } });
       map.addLayer({ id: 'labels-incidents', type: 'symbol', source: 'map-labels', minzoom: 12, filter: ['==', ['get', 'kind'], 'incident'],
         layout: { 'text-field': ['get', 'text'], 'text-font': LABEL_FONT, 'text-size': 11, 'text-anchor': 'top', 'text-offset': [0, 1.3], 'text-padding': 2 },
         paint: labelPaint });
@@ -221,6 +255,7 @@ export default function TrafficMap({
       const LIVE_LAYERS = ['live-hit', 'live-points', 'labels-live'];
       const CORRIDOR_LAYERS = ['corridors-hit', 'labels-corridors'];
       const SIGNAL_LAYERS = ['signals-known', 'signals-unknown', 'signals-hit'];
+      const PARKING_LAYERS = ['parking-hit', 'parking-lines', 'labels-parking'];
       map.on('click', (e) => {
         if (pickModeRef.current) return;
         // El semáforo es lo más chico y específico: va primero.
@@ -229,13 +264,19 @@ export default function TrafficMap({
         if (sig) { onSelectSignalRef.current(sig); return; }
         const live = map.queryRenderedFeatures(e.point, { layers: LIVE_LAYERS });
         if (live.length) { showPopup({ ...e, features: live } as maplibregl.MapLayerMouseEvent); return; }
+        const park = map.queryRenderedFeatures(e.point, { layers: PARKING_LAYERS });
+        if (park.length) {
+          new maplibregl.Popup({ closeButton: true, maxWidth: '260px', className: 'live-popup-wrap' })
+            .setLngLat(e.lngLat).setDOMContent(parkingPopupContent(park[0].properties ?? {})).addTo(map);
+          return;
+        }
         const corridor = map.queryRenderedFeatures(e.point, { layers: CORRIDOR_LAYERS });
         if (corridor.length) {
           new maplibregl.Popup({ closeButton: true, maxWidth: '260px', className: 'live-popup-wrap' })
             .setLngLat(e.lngLat).setDOMContent(corridorPopupContent(corridor[0].properties ?? {})).addTo(map);
         }
       });
-      for (const layer of [...LIVE_LAYERS, ...CORRIDOR_LAYERS, ...SIGNAL_LAYERS]) pointer(layer);
+      for (const layer of [...LIVE_LAYERS, ...CORRIDOR_LAYERS, ...SIGNAL_LAYERS, ...PARKING_LAYERS]) pointer(layer);
     });
     mapRef.current = map;
     return () => { map.remove(); mapRef.current = null; };
@@ -274,6 +315,18 @@ export default function TrafficMap({
     };
     (mapRef.current?.getSource('live-traffic') as maplibregl.GeoJSONSource | undefined)?.setData(liveDataRef.current);
   }, [liveIncidents, showLive]);
+
+  useEffect(() => {
+    parkingDataRef.current = {
+      type: 'FeatureCollection',
+      features: (showParking ? parking : []).map((p) => ({
+        type: 'Feature',
+        properties: { street: p.street, fromCorner: p.fromCorner, toCorner: p.toCorner, schedule: p.schedule, notes: p.notes, sourceType: p.sourceType },
+        geometry: { type: 'LineString', coordinates: p.coordinates },
+      })),
+    };
+    (mapRef.current?.getSource('parking') as maplibregl.GeoJSONSource | undefined)?.setData(parkingDataRef.current);
+  }, [parking, showParking]);
 
   // Títulos de cada línea y marca del mapa.
   useEffect(() => {

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { INCIDENT_LABELS, type IncidentDTO, type SignalDTO } from '@/types/traffic';
 import { AVELLANEDA_CORRIDORS, SAME_CORNER_METERS } from '@/lib/avellaneda-network';
 import { findIntersection, nearestCorridorCode, type GeorefMatch } from '@/lib/georef';
+import { lineLengthMeters, type ParkingDTO } from '@/lib/parking';
 
 export default function AdminPage() {
   const [authed, setAuthed] = useState(false);
@@ -41,6 +42,17 @@ export default function AdminPage() {
   const [sigFilter, setSigFilter] = useState('');
   const [sigOnlyReported, setSigOnlyReported] = useState(false);
   const [sigSaved, setSigSaved] = useState<string | null>(null);
+  // Prohibido estacionar: calle + dos esquinas; el tramo se dibuja entre ambas.
+  const [parking, setParking] = useState<ParkingDTO[]>([]);
+  const [pkStreet, setPkStreet] = useState('');
+  const [pkFrom, setPkFrom] = useState('');
+  const [pkTo, setPkTo] = useState('');
+  const [pkSchedule, setPkSchedule] = useState('');
+  const [pkNotes, setPkNotes] = useState('');
+  const [pkFound, setPkFound] = useState<{ from: GeorefMatch; to: GeorefMatch } | null>(null);
+  const [pkStatus, setPkStatus] = useState<'idle' | 'buscando' | 'error'>('idle');
+  const [pkError, setPkError] = useState<string | null>(null);
+  const [pkSaved, setPkSaved] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     const [ovRes, stRes] = await Promise.all([fetch('/api/overview'), fetch('/api/admin/cuts')]);
@@ -48,6 +60,9 @@ export default function AdminPage() {
     setAuthed(true);
     if (ovRes.ok) { const ov = await ovRes.json(); setIncidents(ov.incidents); setSignals(ov.signals); }
     if (stRes.ok) { const st = await stRes.json(); setStats(st.stats); }
+    // Con un parámetro distinto cada vez, para no recibir la copia guardada en la CDN.
+    const pkRes = await fetch(`/api/parking?fresh=${Date.now()}`);
+    if (pkRes.ok) { const pk = await pkRes.json(); setParking(pk.parking ?? []); }
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
@@ -145,6 +160,56 @@ export default function AdminPage() {
   const markExistingWorking = async (id: string, name: string) => {
     await updateSignalStatus(id, 'FUNCIONANDO');
     resetSignalForm(); setSigError(null); setSigSaved(`\u2713 Se marc\u00f3 como funcionando: ${name}`);
+  };
+  const resetParkingSearch = () => { setPkFound(null); setPkStatus('idle'); setPkError(null); setPkSaved(null); };
+  const searchParkingStretch = async () => {
+    const street = pkStreet.trim(), a = pkFrom.trim(), b = pkTo.trim();
+    if (!street || !a || !b) { setPkError('Complet\u00e1 la calle y las dos esquinas.'); return; }
+    setPkStatus('buscando'); setPkError(null); setPkFound(null); setPkSaved(null);
+    try {
+      const [fromMatches, toMatches] = await Promise.all([findIntersection(`${street} y ${a}`), findIntersection(`${street} y ${b}`)]);
+      if (!fromMatches.length || !toMatches.length) {
+        setPkStatus('idle');
+        setPkError(`No encontr\u00e9 la esquina ${!fromMatches.length ? `${street} y ${a}` : `${street} y ${b}`}. Revis\u00e1 los nombres.`);
+        return;
+      }
+      const from = fromMatches[0], to = toMatches[0];
+      const len = lineLengthMeters([[from.lng, from.lat], [to.lng, to.lat]]);
+      if (len < 10 || len > 3000) {
+        setPkStatus('idle');
+        setPkError(len < 10 ? 'Las dos esquinas quedaron en el mismo punto: revis\u00e1 los nombres.' : 'El tramo tiene m\u00e1s de 3 km: cargalo en partes.');
+        return;
+      }
+      setPkFound({ from, to }); setPkStatus('idle');
+    } catch {
+      setPkStatus('error');
+    }
+  };
+  const createParking = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pkFound) { await searchParkingStretch(); return; }
+    setPkError(null);
+    const res = await fetch('/api/admin/parking', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        street: pkStreet, fromCorner: pkFrom, toCorner: pkTo, schedule: pkSchedule, notes: pkNotes,
+        coordinates: [[pkFound.from.lng, pkFound.from.lat], [pkFound.to.lng, pkFound.to.lat]],
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      setPkError(err.error || 'No se pudo guardar el tramo.');
+      return;
+    }
+    setPkSaved(`\u2713 Tramo agregado: ${pkStreet.trim()} entre ${pkFrom.trim()} y ${pkTo.trim()}`);
+    setPkFrom(''); setPkTo(''); setPkNotes(''); setPkFound(null);
+    loadData();
+  };
+  const deleteParking = async (p: ParkingDTO) => {
+    const label = p.fromCorner && p.toCorner ? `${p.street} entre ${p.fromCorner} y ${p.toCorner}` : p.street;
+    if (!window.confirm(`\u00bfQuitar el tramo "${label}" del mapa?`)) return;
+    await fetch(`/api/admin/parking?id=${encodeURIComponent(p.id)}`, { method: 'DELETE' });
+    loadData();
   };
   const createSignal = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -344,6 +409,52 @@ export default function AdminPage() {
           ))}
         </div>
         {visibleSignals.length > 120 && <p className="text-xs text-slate-500">{`Hay ${visibleSignals.length - 120} m\u00e1s: busc\u00e1 por calle para encontrarlos.`}</p>}
+      </section>
+      <section className="bg-white p-4 rounded-2xl border space-y-3">
+        <h2 className="font-black text-slate-900">{`\u{1F6AB} Prohibido estacionar (${parking.length} tramos)`}</h2>
+        <form onSubmit={createParking} className="space-y-2">
+          <input required value={pkStreet} onChange={(e) => { setPkStreet(e.target.value); resetParkingSearch(); }}
+            placeholder={'Calle (ej: Av. Mitre)'} className="w-full border rounded-xl p-2.5 text-sm" />
+          <div className="grid grid-cols-2 gap-2">
+            <input required value={pkFrom} onChange={(e) => { setPkFrom(e.target.value); resetParkingSearch(); }}
+              placeholder={'Desde la esquina (ej: Alsina)'} className="border rounded-xl p-2.5 text-sm" />
+            <input required value={pkTo} onChange={(e) => { setPkTo(e.target.value); resetParkingSearch(); }}
+              placeholder={'Hasta la esquina (ej: Berutti)'} className="border rounded-xl p-2.5 text-sm" />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <input value={pkSchedule} onChange={(e) => setPkSchedule(e.target.value)}
+              placeholder={'Horario (opcional, ej: Lun a vie 7 a 20 h)'} className="border rounded-xl p-2.5 text-sm" />
+            <input value={pkNotes} onChange={(e) => setPkNotes(e.target.value)}
+              placeholder={'Detalle (opcional, ej: Mano izquierda)'} className="border rounded-xl p-2.5 text-sm" />
+          </div>
+          {pkStatus === 'buscando' && <p className="text-xs text-slate-500">{'Buscando las esquinas\u2026'}</p>}
+          {pkStatus === 'error' && <p className="text-xs text-amber-700">{'No se pudo consultar el buscador de direcciones. Prob\u00e1 de nuevo.'}</p>}
+          {pkFound && (
+            <p className="text-xs text-emerald-700 font-semibold">
+              {`\u2713 Desde ${pkFound.from.label} hasta ${pkFound.to.label} (${Math.round(lineLengthMeters([[pkFound.from.lng, pkFound.from.lat], [pkFound.to.lng, pkFound.to.lat]]))} m)`}
+            </p>
+          )}
+          {pkError && <p className="text-xs font-bold text-red-600">{pkError}</p>}
+          {pkSaved && <p className="text-xs font-bold text-emerald-700">{pkSaved}</p>}
+          <button className="w-full py-2.5 rounded-xl bg-rose-700 text-white font-black text-sm">
+            {pkFound ? 'Guardar tramo' : '\u{1F4CD} Buscar tramo'}
+          </button>
+        </form>
+        {parking.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {parking.map((p) => (
+              <div key={p.id} className="p-3 border rounded-xl flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-bold text-sm">{p.fromCorner && p.toCorner ? `${p.street} entre ${p.fromCorner} y ${p.toCorner}` : p.street}</p>
+                  <p className="text-xs text-slate-500">
+                    {[p.schedule || 'Todo el d\u00eda', p.notes, p.sourceType === 'OSM' ? 'De OpenStreetMap' : null].filter(Boolean).join(' \u00b7 ')}
+                  </p>
+                </div>
+                <button type="button" onClick={() => void deleteParking(p)} className="shrink-0 px-2 py-1 rounded-lg bg-red-100 text-red-700 text-[11px] font-bold">Quitar</button>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
     </div>
   );

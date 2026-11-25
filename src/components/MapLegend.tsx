@@ -2,8 +2,9 @@
 
 import { useLayoutEffect, useRef, useState } from 'react';
 import { TRAFFIC_COLOR_MAP } from '@/types/traffic';
+import { PARKING_COLOR } from '@/lib/parking';
 
-interface LegendItem { color: string; label: string; shape: 'line' | 'dot' }
+interface LegendItem { color: string; label: string; shape: 'line' | 'dot' | 'dashed' }
 
 const AVENUES: LegendItem[] = (['NORMAL', 'MODERADO', 'INTENSO', 'CRITICO', 'CORTADO'] as const).map((k) => ({
   color: TRAFFIC_COLOR_MAP[k].hex, label: TRAFFIC_COLOR_MAP[k].label, shape: 'line',
@@ -25,6 +26,10 @@ const SIGNALS: LegendItem[] = [
   { color: '#94a3b8', label: 'Sin reportes (se ven de cerca)', shape: 'dot' },
 ];
 
+const PARKING: LegendItem[] = [
+  { color: PARKING_COLOR, label: 'Prohibido estacionar (se ve de cerca)', shape: 'dashed' },
+];
+
 function Section({ title, items }: { title: string; items: LegendItem[] }) {
   return (
     <div>
@@ -32,7 +37,9 @@ function Section({ title, items }: { title: string; items: LegendItem[] }) {
       <ul className="space-y-1">
         {items.map((item) => (
           <li key={item.label} className="flex items-center gap-2.5 text-xs text-slate-800">
-            {item.shape === 'line'
+            {item.shape === 'dashed'
+              ? <span className="w-6 h-1.5 shrink-0" style={{ backgroundImage: `repeating-linear-gradient(90deg, ${item.color} 0 5px, transparent 5px 8px)` }} />
+              : item.shape === 'line'
               ? <span className="w-6 h-1.5 rounded-full shrink-0 ring-1 ring-white" style={{ backgroundColor: item.color }} />
               : <span className="w-3.5 h-3.5 rounded-full shrink-0 border-2 border-white shadow" style={{ backgroundColor: item.color }} />}
             {item.label}
@@ -43,9 +50,9 @@ function Section({ title, items }: { title: string; items: LegendItem[] }) {
   );
 }
 
-interface MapLegendProps { open: boolean; onToggle: () => void; showLive: boolean }
+interface MapLegendProps { open: boolean; onToggle: () => void; showLive: boolean; showParking?: boolean }
 
-export default function MapLegend({ open, onToggle, showLive }: MapLegendProps) {
+export default function MapLegend({ open, onToggle, showLive, showParking = false }: MapLegendProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [maxHeight, setMaxHeight] = useState<number | null>(null);
 
@@ -83,6 +90,7 @@ export default function MapLegend({ open, onToggle, showLive }: MapLegendProps) 
           <Section title="Avenidas (reportes de vecinos)" items={AVENUES} />
           {showLive && <Section title="En vivo (TomTom)" items={LIVE} />}
           <Section title={'Semáforos'} items={SIGNALS} />
+          {showParking && <Section title={'Estacionamiento'} items={PARKING} />}
         </div>
       )}
     </>
