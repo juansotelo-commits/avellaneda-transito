@@ -37,6 +37,9 @@ export default function AdminPage() {
   const [sigGeoStatus, setSigGeoStatus] = useState<'idle' | 'buscando' | 'sin-resultado' | 'error'>('idle');
   const [sigError, setSigError] = useState<string | null>(null);
   const [sigSearchedFor, setSigSearchedFor] = useState('');
+  // Buscador de la lista de semáforos (son cientos desde que se sumaron los de OpenStreetMap).
+  const [sigFilter, setSigFilter] = useState('');
+  const [sigOnlyReported, setSigOnlyReported] = useState(false);
 
   const loadData = useCallback(async () => {
     const [ovRes, stRes] = await Promise.all([fetch('/api/overview'), fetch('/api/admin/cuts')]);
@@ -47,6 +50,15 @@ export default function AdminPage() {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Sin tildes ni mayúsculas, y cada palabra tiene que aparecer en el nombre de la esquina.
+  const norm = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const filterWords = norm(sigFilter).split(/[\s,]+/).filter((w) => w && w !== 'y' && w !== 'e' && w !== 'av' && w !== 'av.');
+  const visibleSignals = signals
+    .filter((s) => !sigOnlyReported || s.status !== 'SIN_INFORMACION')
+    .filter((s) => filterWords.every((w) => norm(s.intersection).includes(w)))
+    // Primero los que tienen un estado cargado, después por nombre.
+    .sort((a, b) => Number(a.status === 'SIN_INFORMACION') - Number(b.status === 'SIN_INFORMACION') || a.intersection.localeCompare(b.intersection, 'es'));
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault(); setLoginError(null);
@@ -264,8 +276,18 @@ export default function AdminPage() {
       </section>
       <section className="bg-white p-4 rounded-2xl border space-y-3">
         <h2 className="font-black text-slate-900">{'Sem\u00e1foros'} ({signals.length})</h2>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <input type="search" value={sigFilter} onChange={(e) => setSigFilter(e.target.value)}
+            placeholder={'Buscar por calle (ej.: Mitre, Belgrano y Alsina)'} className="flex-1 border rounded-xl p-2.5 text-sm" />
+          <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
+            <input type="checkbox" checked={sigOnlyReported} onChange={(e) => setSigOnlyReported(e.target.checked)} />
+            {'Solo con estado cargado'}
+          </label>
+        </div>
+        {visibleSignals.length === 0 && <p className="text-xs text-slate-500">{'Ning\u00fan sem\u00e1foro coincide con la b\u00fasqueda.'}</p>}
+        {visibleSignals.length > 0 && (sigFilter || sigOnlyReported) && <p className="text-xs text-slate-500">{`Mostrando ${visibleSignals.length}`}</p>}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-          {signals.map((sig) => (
+          {visibleSignals.slice(0, 120).map((sig) => (
             <div key={sig.id} className="p-3 border rounded-xl flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <p className="font-bold text-sm truncate">{sig.intersection}</p>
@@ -281,6 +303,7 @@ export default function AdminPage() {
             </div>
           ))}
         </div>
+        {visibleSignals.length > 120 && <p className="text-xs text-slate-500">{`Hay ${visibleSignals.length - 120} m\u00e1s: busc\u00e1 por calle para encontrarlos.`}</p>}
       </section>
     </div>
   );

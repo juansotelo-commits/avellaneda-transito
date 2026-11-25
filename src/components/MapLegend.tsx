@@ -22,7 +22,7 @@ const SIGNALS: LegendItem[] = [
   { color: '#18181b', label: 'Apagado', shape: 'dot' },
   { color: '#dc2626', label: 'Tildado', shape: 'dot' },
   { color: '#f97316', label: 'Funcionando mal', shape: 'dot' },
-  { color: '#94a3b8', label: 'Sin información', shape: 'dot' },
+  { color: '#94a3b8', label: 'Sin reportes (se ven de cerca)', shape: 'dot' },
 ];
 
 function Section({ title, items }: { title: string; items: LegendItem[] }) {

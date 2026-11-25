@@ -123,6 +123,11 @@ export default function TrafficMap({
   const corridorsDataRef = useRef<GeoJSON.FeatureCollection>(emptyCollection);
   const liveDataRef = useRef<GeoJSON.FeatureCollection>(emptyCollection);
   const labelsDataRef = useRef<GeoJSON.FeatureCollection>(emptyCollection);
+  const signalsDataRef = useRef<GeoJSON.FeatureCollection>(emptyCollection);
+  // El manejador de toques se crea una sola vez: lee los semáforos y el callback desde refs.
+  const signalsByIdRef = useRef<Map<string, SignalDTO>>(new Map());
+  const onSelectSignalRef = useRef(onSelectSignal);
+  useEffect(() => { onSelectSignalRef.current = onSelectSignal; }, [onSelectSignal]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -154,6 +159,20 @@ export default function TrafficMap({
       map.addLayer({ id: 'live-points', type: 'circle', source: 'live-traffic', filter: ['==', ['geometry-type'], 'Point'],
         paint: { 'circle-color': ['get', 'color'], 'circle-radius': 7, 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 } });
 
+      // Semáforos: como capa del mapa (y no un botón por cada uno), porque son cientos.
+      // Los que tienen un estado reportado se ven siempre; los que no tienen reportes, solo de cerca.
+      map.addSource('signals', { type: 'geojson', data: signalsDataRef.current });
+      const signalPaint: maplibregl.CircleLayerSpecification['paint'] = {
+        'circle-color': ['get', 'color'],
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 4, 15, 7, 17, 10],
+        'circle-stroke-color': '#ffffff', 'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 12, 1.5, 16, 2.5],
+      };
+      map.addLayer({ id: 'signals-unknown', type: 'circle', source: 'signals', minzoom: 14, filter: ['!', ['get', 'known']], paint: signalPaint });
+      map.addLayer({ id: 'signals-known', type: 'circle', source: 'signals', filter: ['get', 'known'], paint: signalPaint });
+      // Zona para tocar con el dedo, más grande que el punto.
+      map.addLayer({ id: 'signals-hit', type: 'circle', source: 'signals', minzoom: 14,
+        paint: { 'circle-color': '#000000', 'circle-opacity': 0.01, 'circle-radius': 16 } });
+
       // Zonas invisibles más anchas que las líneas, para que sea fácil tocarlas con el dedo.
       // (Opacidad 0.01 y no 0: con 0 la librería las ignora al consultar qué se tocó.)
       map.addLayer({ id: 'corridors-hit', type: 'line', source: 'avellaneda-corridors', layout: { 'line-cap': 'round' },
@@ -176,9 +195,14 @@ export default function TrafficMap({
         layout: { 'text-field': ['get', 'text'], 'text-font': LABEL_FONT, 'text-size': ['interpolate', ['linear'], ['zoom'], 12, 10, 16, 12],
           'text-max-width': 12, 'text-padding': 6 },
         paint: labelPaint });
-      map.addLayer({ id: 'labels-signals', type: 'symbol', source: 'map-labels', minzoom: 14.5, filter: ['==', ['get', 'kind'], 'signal'],
-        layout: { 'text-field': ['get', 'text'], 'text-font': LABEL_FONT, 'text-size': 10, 'text-anchor': 'top', 'text-offset': [0, 1.2], 'text-padding': 2 },
-        paint: labelPaint });
+      const signalLabelLayout: maplibregl.SymbolLayerSpecification['layout'] = {
+        'text-field': ['get', 'text'], 'text-font': LABEL_FONT, 'text-size': 10, 'text-anchor': 'top', 'text-offset': [0, 1], 'text-padding': 2,
+      };
+      map.addLayer({ id: 'labels-signals', type: 'symbol', source: 'map-labels', minzoom: 14.5,
+        filter: ['all', ['==', ['get', 'kind'], 'signal'], ['get', 'known']], layout: signalLabelLayout, paint: labelPaint });
+      // Los que no tienen reportes llevan el título "Semáforo" recién bien de cerca, para no tapar las calles.
+      map.addLayer({ id: 'labels-signals-unknown', type: 'symbol', source: 'map-labels', minzoom: 16.5,
+        filter: ['all', ['==', ['get', 'kind'], 'signal'], ['!', ['get', 'known']]], layout: signalLabelLayout, paint: labelPaint });
       map.addLayer({ id: 'labels-live', type: 'symbol', source: 'map-labels', minzoom: 12, filter: ['==', ['get', 'kind'], 'live'],
         layout: { 'text-field': ['get', 'text'], 'text-font': LABEL_FONT, 'text-size': ['interpolate', ['linear'], ['zoom'], 12, 10, 16, 12],
           'text-anchor': 'bottom', 'text-offset': [0, -0.6], 'text-padding': 3 },
@@ -196,8 +220,13 @@ export default function TrafficMap({
       // Prioridad: incidente en vivo (más específico) y después la avenida. Así no se abren dos a la vez.
       const LIVE_LAYERS = ['live-hit', 'live-points', 'labels-live'];
       const CORRIDOR_LAYERS = ['corridors-hit', 'labels-corridors'];
+      const SIGNAL_LAYERS = ['signals-known', 'signals-unknown', 'signals-hit'];
       map.on('click', (e) => {
         if (pickModeRef.current) return;
+        // El semáforo es lo más chico y específico: va primero.
+        const sig = map.queryRenderedFeatures(e.point, { layers: SIGNAL_LAYERS })
+          .map((f) => signalsByIdRef.current.get(String(f.properties?.id))).find(Boolean);
+        if (sig) { onSelectSignalRef.current(sig); return; }
         const live = map.queryRenderedFeatures(e.point, { layers: LIVE_LAYERS });
         if (live.length) { showPopup({ ...e, features: live } as maplibregl.MapLayerMouseEvent); return; }
         const corridor = map.queryRenderedFeatures(e.point, { layers: CORRIDOR_LAYERS });
@@ -206,7 +235,7 @@ export default function TrafficMap({
             .setLngLat(e.lngLat).setDOMContent(corridorPopupContent(corridor[0].properties ?? {})).addTo(map);
         }
       });
-      for (const layer of [...LIVE_LAYERS, ...CORRIDOR_LAYERS]) pointer(layer);
+      for (const layer of [...LIVE_LAYERS, ...CORRIDOR_LAYERS, ...SIGNAL_LAYERS]) pointer(layer);
     });
     mapRef.current = map;
     return () => { map.remove(); mapRef.current = null; };
@@ -265,7 +294,9 @@ export default function TrafficMap({
           title: LIVE_KIND_LABELS[inc.kind], description: inc.description, from: inc.from, to: inc.to, delayMinutes: inc.delayMinutes,
         });
       }),
-      ...(showSignals ? signals : []).map((s) => point([s.lng, s.lat], { kind: 'signal', text: SIGNAL_LABEL[s.status] ?? 'Semáforo', textColor: '#334155' })),
+      ...(showSignals ? signals : []).map((s) => point([s.lng, s.lat], {
+        kind: 'signal', known: s.status !== 'SIN_INFORMACION', text: SIGNAL_LABEL[s.status] ?? 'Semáforo', textColor: '#334155',
+      })),
       ...incidents.map((i) => point([i.lng, i.lat], { kind: 'incident', text: INCIDENT_LABELS[i.type] ?? 'Reporte', textColor: '#b91c1c' })),
     ];
     labelsDataRef.current = { type: 'FeatureCollection', features };
@@ -333,22 +364,23 @@ export default function TrafficMap({
   }, [focusCoords]);
 
   useEffect(() => {
+    signalsByIdRef.current = new Map(signals.map((s) => [s.id, s]));
+    signalsDataRef.current = {
+      type: 'FeatureCollection',
+      features: (showSignals ? signals : []).map((s) => ({
+        type: 'Feature',
+        properties: { id: s.id, color: SIGNAL_COLOR[s.status] ?? '#94a3b8', known: s.status !== 'SIN_INFORMACION' },
+        geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
+      })),
+    };
+    (mapRef.current?.getSource('signals') as maplibregl.GeoJSONSource | undefined)?.setData(signalsDataRef.current);
+  }, [signals, showSignals]);
+
+  useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     markersRef.current.forEach((m) => m.remove());
     markersRef.current = [];
-    if (showSignals) {
-      for (const sig of signals) {
-        const el = document.createElement('button');
-        el.type = 'button';
-        el.className = 'w-6 h-6 rounded-full border-2 border-white shadow-md flex items-center justify-center text-[11px] font-bold text-white cursor-pointer';
-        el.style.backgroundColor = SIGNAL_COLOR[sig.status] ?? '#94a3b8';
-        el.textContent = '\u{1F6A6}';
-        el.title = sig.intersection;
-        el.onclick = (e) => { e.stopPropagation(); onSelectSignal(sig); };
-        markersRef.current.push(new maplibregl.Marker({ element: el }).setLngLat([sig.lng, sig.lat]).addTo(map));
-      }
-    }
     for (const inc of incidents) {
       const isCut = inc.type === 'CALLE_CORTADA' || inc.type === 'AVENIDA_CORTADA';
       const el = document.createElement('button');
@@ -359,7 +391,7 @@ export default function TrafficMap({
       el.onclick = (e) => { e.stopPropagation(); onSelectIncident(inc); };
       markersRef.current.push(new maplibregl.Marker({ element: el }).setLngLat([inc.lng, inc.lat]).addTo(map));
     }
-  }, [signals, incidents, showSignals, onSelectSignal, onSelectIncident]);
+  }, [incidents, onSelectIncident]);
 
   return <div ref={containerRef} className="w-full h-full" />;
 }
